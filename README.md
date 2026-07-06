@@ -6,13 +6,28 @@ A Blazor web application where users upload math — model definitions (paramete
 
 ## Quickstart
 
-*(Phase 0 in progress — placeholder)*
+```
+# prerequisites: .NET 10 SDK, Docker
+docker compose up -d                          # Azurite (blob+queue) + Postgres on :5433
+dotnet run --project src/PackForge.Web        # http://localhost:5221
+```
+
+Then: **Uploads** page — upload any file (goes browser→blob via SAS). **Packages** — upload a
+model definition (see `docs/samples/compound-growth.json`), build a versioned package, publish it
+through the release gate. **Migration** — seed a fake legacy corpus and run the verified backfill:
 
 ```
-# prerequisites: .NET 8 SDK, Docker (for Azurite + Postgres)
-docker compose up -d        # Azurite blob emulator + local Postgres
-dotnet run --project src/PackForge.Web
+pwsh scripts/seed-legacy.ps1                  # 556 files / ~1.3 GB, some deliberately corrupt
+# then click "Scan & migrate" on /migration
 ```
+
+Run the tests: `dotnet test` (24 tests — expression engine, validator, reproducible packaging).
+
+## Deploy (optional, ~$0–5/mo)
+
+Infra is `infra/main.bicep` + `azure.yaml`. `az bicep build` validates it; `azd up` provisions
+Container Apps (scale-to-zero), Blob Storage, a KEDA queue-scaled build job, managed identity, and
+App Insights. Not deployed by default — the project runs entirely on free local emulators.
 
 ## Architecture sketch
 
