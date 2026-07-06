@@ -1,5 +1,4 @@
 @page "/packages"
-@rendermode InteractiveServer
 @using Microsoft.AspNetCore.SignalR.Client
 @using Microsoft.EntityFrameworkCore
 @using PackForge.Core
@@ -12,64 +11,74 @@
 
 <PageTitle>PackForge — Packages</PageTitle>
 
-<h1>Packages</h1>
-<p>Pick an uploaded model definition (.json) and build a versioned deployment package. Builds run asynchronously off the storage queue.</p>
+<MudText Typo="Typo.h4" GutterBottom="true">Packages</MudText>
+<MudText Class="mb-4">Pick an uploaded model definition (.json) and build a versioned deployment package. Builds run asynchronously off the storage queue and update live over SignalR.</MudText>
 
-<div class="upload-box">
-    <select @bind="selectedUploadId">
-        <option value="">— choose a ready upload —</option>
-        @foreach (var u in modelUploads)
-        {
-            <option value="@u.Id">@u.FileName (@u.CreatedAt.ToLocalTime().ToString("g"))</option>
-        }
-    </select>
-    <button @onclick="BuildAsync" disabled="@(string.IsNullOrEmpty(selectedUploadId))">Build package</button>
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <div class="d-flex gap-4 align-center flex-wrap">
+        <MudSelect T="string" @bind-Value="selectedUploadId" Label="Ready model upload" Variant="Variant.Outlined"
+                   Dense="true" Style="min-width: 320px;">
+            @foreach (var u in modelUploads)
+            {
+                <MudSelectItem Value="@u.Id.ToString()">@u.FileName (@u.CreatedAt.ToLocalTime().ToString("g"))</MudSelectItem>
+            }
+        </MudSelect>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Build"
+                   OnClick="BuildAsync" Disabled="@string.IsNullOrEmpty(selectedUploadId)">Build package</MudButton>
+    </div>
     @if (message is not null)
     {
-        <p>@message</p>
+        <MudAlert Severity="@(validationErrors.Count > 0 ? Severity.Error : Severity.Info)" Class="mt-3" Dense="true">@message</MudAlert>
     }
     @if (validationErrors.Count > 0)
     {
-        <ul style="color:red">
+        <MudList T="string" Dense="true">
             @foreach (var e in validationErrors)
             {
-                <li><strong>@e.Key:</strong> @string.Join("; ", e.Value)</li>
+                <MudListItem T="string" Icon="@Icons.Material.Filled.Error"><b>@e.Key:</b> @string.Join("; ", e.Value)</MudListItem>
             }
-        </ul>
+        </MudList>
     }
-</div>
+</MudPaper>
 
-<table>
-    <thead>
-        <tr><th>Model</th><th>Version</th><th>Status</th><th>Package SHA-256</th><th>Created</th><th></th></tr>
-    </thead>
-    <tbody>
-        @foreach (var b in builds)
-        {
-            <tr>
-                <td>@b.ModelName</td>
-                <td>v@(b.Version)</td>
-                <td>@b.Status @(b.Error is null ? "" : $"— {b.Error}")</td>
-                <td><code>@(b.PackageSha256 is null ? "—" : b.PackageSha256[..12] + "…")</code></td>
-                <td>@b.CreatedAt.ToLocalTime().ToString("g")</td>
-                <td>
-                    @if (b.Status == BuildStatus.Ready)
+<MudDataGrid T="PackageBuild" Items="builds" Filterable="true" SortMode="SortMode.Multiple" Dense="true" Hover="true" Elevation="1">
+    <Columns>
+        <PropertyColumn Property="b => b.ModelName" Title="Model" />
+        <PropertyColumn Property="b => b.Version" Title="Version" />
+        <TemplateColumn Title="Status" Sortable="true" SortBy="b => b.Status">
+            <CellTemplate>
+                <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.Item.Status)">@context.Item.Status</MudChip>
+                @if (context.Item.Error is not null)
+                {
+                    <MudTooltip Text="@context.Item.Error"><MudIcon Icon="@Icons.Material.Filled.Info" Size="Size.Small" /></MudTooltip>
+                }
+            </CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="Package SHA-256" Sortable="false">
+            <CellTemplate>
+                <code>@(context.Item.PackageSha256 is null ? "—" : context.Item.PackageSha256[..12] + "…")</code>
+            </CellTemplate>
+        </TemplateColumn>
+        <PropertyColumn Property="b => b.CreatedAt.LocalDateTime" Title="Created" Format="g" />
+        <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
+            <CellTemplate>
+                @if (context.Item.Status == BuildStatus.Ready)
+                {
+                    <MudLink Href="@($"/api/packages/{context.Item.Id}/download")" Target="_blank">download</MudLink>
+                    @if (context.Item.Published)
                     {
-                        <a href="/api/packages/@b.Id/download" target="_blank">download</a>
-                        @if (b.Published)
-                        {
-                            <span title="@b.PublishedAt?.ToLocalTime().ToString("g")"> · published ✓</span>
-                        }
-                        else
-                        {
-                            <text> · </text><button class="link" @onclick="() => PublishAsync(b.Id)">publish</button>
-                        }
+                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Icon="@Icons.Material.Filled.CheckCircle">published</MudChip>
                     }
-                </td>
-            </tr>
-        }
-    </tbody>
-</table>
+                    else
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Secondary"
+                                   OnClick="@(() => PublishAsync(context.Item.Id))">publish</MudButton>
+                    }
+                }
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+</MudDataGrid>
 
 @code {
     private List<Upload> modelUploads = [];
@@ -142,6 +151,14 @@
         message = resp.IsSuccessStatusCode ? "Package published — release gate passed." : await resp.Content.ReadAsStringAsync();
         await RefreshAsync();
     }
+
+    private static Color StatusColor(BuildStatus status) => status switch
+    {
+        BuildStatus.Ready => Color.Success,
+        BuildStatus.Failed => Color.Error,
+        BuildStatus.Building => Color.Info,
+        _ => Color.Default,
+    };
 
     private record BuildResponse(Guid Id, int Version, bool Reused);
 

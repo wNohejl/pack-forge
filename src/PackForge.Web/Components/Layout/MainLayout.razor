@@ -1,13 +1,23 @@
 @inherits LayoutComponentBase
 
-<nav class="topnav">
-    <strong>PackForge</strong>
-    <a href="/">Uploads</a>
-    <a href="/packages">Packages</a>
-    <a href="/migration">Migration</a>
-</nav>
+<MudThemeProvider />
+<MudPopoverProvider />
+<MudDialogProvider />
+<MudSnackbarProvider />
 
-@Body
+<MudLayout>
+    <MudAppBar Elevation="1" Dense="true">
+        <MudText Typo="Typo.h6" Class="mr-6">PackForge</MudText>
+        <MudButton Href="/" Variant="Variant.Text" Color="Color.Inherit">Uploads</MudButton>
+        <MudButton Href="/packages" Variant="Variant.Text" Color="Color.Inherit">Packages</MudButton>
+        <MudButton Href="/migration" Variant="Variant.Text" Color="Color.Inherit">Migration</MudButton>
+    </MudAppBar>
+    <MudMainContent>
+        <MudContainer MaxWidth="MaxWidth.Large" Class="mt-6">
+            @Body
+        </MudContainer>
+    </MudMainContent>
+</MudLayout>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.

@@ -1,5 +1,4 @@
 @page "/migration"
-@rendermode InteractiveServer
 @using System.Text.Json
 @using Microsoft.AspNetCore.SignalR.Client
 @using PackForge.Web.Realtime
@@ -9,45 +8,55 @@
 
 <PageTitle>PackForge — Migration</PageTitle>
 
-<h1>Migration</h1>
-<p>Strangler backfill from the legacy file share and SharePoint into blob storage. Every file is checksum-verified before the source copy is trusted; unverified files keep serving from the legacy source via dual-read.</p>
+<MudText Typo="Typo.h4" GutterBottom="true">Migration</MudText>
+<MudText Class="mb-4">Strangler backfill from the legacy file share and SharePoint into blob storage. Every file is checksum-verified before the source copy is trusted; unverified files keep serving from the legacy source via dual-read. Progress streams live over SignalR.</MudText>
 
-<button @onclick="RunAsync" disabled="@(report?.Running == true)">
+<MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.CloudSync"
+           OnClick="RunAsync" Disabled="@(report?.Running == true)" Class="mb-4">
     @(report?.Running == true ? "Running…" : "Scan & migrate")
-</button>
+</MudButton>
 
 @if (report is not null)
 {
-    <p>
-        Copied <strong>@FormatSize(report.BytesCopied)</strong>
-        @(report.ThroughputMBps > 0 ? $"at {report.ThroughputMBps:F1} MB/s" : "")
+    @if (report.Running)
+    {
+        <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-2" />
+    }
+    <MudText Class="mb-3">
+        Copied <b>@FormatSize(report.BytesCopied)</b>
+        @(report.ThroughputMBps > 0 ? $" at {report.ThroughputMBps:F1} MB/s" : "")
         @(report.FinishedAt is not null ? " — run complete." : report.Running ? " — in progress…" : "")
-    </p>
+    </MudText>
 
-    <table>
-        <thead><tr><th>Source</th><th>Status</th><th>Files</th><th>Bytes</th></tr></thead>
-        <tbody>
-            @foreach (var row in report.ByStatus.OrderBy(r => r.SourceSystem).ThenBy(r => r.Status))
-            {
-                <tr>
-                    <td>@row.SourceSystem</td>
-                    <td>@row.Status</td>
-                    <td>@row.Count</td>
-                    <td>@FormatSize(row.Bytes)</td>
-                </tr>
-            }
-        </tbody>
-    </table>
+    <MudDataGrid T="StatusRow" Items="report.ByStatus" Dense="true" Hover="true" Elevation="1" SortMode="SortMode.Multiple" Class="mb-4">
+        <Columns>
+            <PropertyColumn Property="r => r.SourceSystem" Title="Source" />
+            <TemplateColumn Title="Status" SortBy="r => r.Status">
+                <CellTemplate>
+                    <MudChip T="string" Size="Size.Small" Color="@StatusColor(context.Item.Status)">@context.Item.Status</MudChip>
+                </CellTemplate>
+            </TemplateColumn>
+            <PropertyColumn Property="r => r.Count" Title="Files" />
+            <TemplateColumn Title="Bytes" SortBy="r => r.Bytes">
+                <CellTemplate>@FormatSize(context.Item.Bytes)</CellTemplate>
+            </TemplateColumn>
+        </Columns>
+    </MudDataGrid>
 
     @if (report.Failures.Count > 0)
     {
-        <h2>Failures (@report.Failures.Count shown)</h2>
-        <ul>
-            @foreach (var f in report.Failures)
-            {
-                <li><code>@f.SourceSystem/@f.SourcePath</code> — @f.Error</li>
-            }
-        </ul>
+        <MudExpansionPanels Elevation="1">
+            <MudExpansionPanel Text="@($"Failures ({report.Failures.Count} shown)")">
+                <MudList T="string" Dense="true">
+                    @foreach (var f in report.Failures)
+                    {
+                        <MudListItem T="string" Icon="@Icons.Material.Filled.Error">
+                            <code>@f.SourceSystem/@f.SourcePath</code> — @f.Error
+                        </MudListItem>
+                    }
+                </MudList>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
     }
 }
 
@@ -96,6 +105,14 @@
         >= 1 << 20 => $"{bytes / (double)(1 << 20):F1} MB",
         >= 1 << 10 => $"{bytes / (double)(1 << 10):F1} KB",
         _ => $"{bytes} B",
+    };
+
+    private static Color StatusColor(string status) => status switch
+    {
+        "Verified" => Color.Success,
+        "Failed" => Color.Error,
+        "Copied" => Color.Info,
+        _ => Color.Default,
     };
 
     private record Report(bool Running, DateTimeOffset? StartedAt, DateTimeOffset? FinishedAt, long BytesCopied,

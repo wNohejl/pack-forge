@@ -1,5 +1,4 @@
 @page "/"
-@rendermode InteractiveServer
 @using Microsoft.EntityFrameworkCore
 @using PackForge.Core
 @using PackForge.Web.Data
@@ -9,46 +8,47 @@
 
 <PageTitle>PackForge — Uploads</PageTitle>
 
-<h1>PackForge</h1>
-<p>Upload a model file — it goes browser → blob storage directly via SAS; the server only records metadata and verifies the checksum.</p>
+<MudText Typo="Typo.h4" GutterBottom="true">Uploads</MudText>
+<MudText Class="mb-4">Upload a model file — it goes browser → blob storage directly via SAS; the server only records metadata and verifies the checksum.</MudText>
 
-<div class="upload-box">
-    <InputFile @ref="fileInput" />
-    <button @onclick="UploadAsync" disabled="@uploading">Upload</button>
+<MudPaper Class="pa-4 mb-4" Elevation="1">
+    <div class="d-flex gap-4 align-center flex-wrap">
+        <InputFile @ref="fileInput" />
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.CloudUpload"
+                   OnClick="UploadAsync" Disabled="@uploading">Upload</MudButton>
+    </div>
     @if (uploading)
     {
-        <progress max="100" value="@progress"></progress> <span>@progress%</span>
+        <MudProgressLinear Color="Color.Primary" Value="@progress" Class="mt-3" />
+        <MudText Typo="Typo.caption">@progress%</MudText>
     }
     @if (error is not null)
     {
-        <p style="color:red">@error</p>
+        <MudAlert Severity="Severity.Error" Class="mt-3" Dense="true">@error</MudAlert>
     }
-</div>
+</MudPaper>
 
-<h2>Uploads</h2>
-<table>
-    <thead>
-        <tr><th>File</th><th>Size</th><th>SHA-256</th><th>Status</th><th>Uploaded</th><th></th></tr>
-    </thead>
-    <tbody>
-        @foreach (var u in uploads)
-        {
-            <tr>
-                <td>@u.FileName</td>
-                <td>@FormatSize(u.SizeBytes)</td>
-                <td><code>@(u.Sha256 is null ? "—" : u.Sha256[..12] + "…")</code></td>
-                <td>@u.Status</td>
-                <td>@u.CreatedAt.ToLocalTime().ToString("g")</td>
-                <td>
-                    @if (u.Status == UploadStatus.Ready)
-                    {
-                        <a href="/api/uploads/@u.Id/download" target="_blank">download</a>
-                    }
-                </td>
-            </tr>
-        }
-    </tbody>
-</table>
+<MudDataGrid T="Upload" Items="uploads" Filterable="true" SortMode="SortMode.Multiple" Dense="true" Hover="true" Elevation="1">
+    <Columns>
+        <PropertyColumn Property="u => u.FileName" Title="File" />
+        <TemplateColumn Title="Size" SortBy="u => u.SizeBytes">
+            <CellTemplate>@FormatSize(context.Item.SizeBytes)</CellTemplate>
+        </TemplateColumn>
+        <TemplateColumn Title="SHA-256" Sortable="false">
+            <CellTemplate><code>@(context.Item.Sha256 is null ? "—" : context.Item.Sha256[..12] + "…")</code></CellTemplate>
+        </TemplateColumn>
+        <PropertyColumn Property="u => u.Status" Title="Status" />
+        <PropertyColumn Property="u => u.CreatedAt.LocalDateTime" Title="Uploaded" Format="g" />
+        <TemplateColumn Title="Actions" Sortable="false" Filterable="false">
+            <CellTemplate>
+                @if (context.Item.Status == UploadStatus.Ready)
+                {
+                    <MudLink Href="@($"/api/uploads/{context.Item.Id}/download")" Target="_blank">download</MudLink>
+                }
+            </CellTemplate>
+        </TemplateColumn>
+    </Columns>
+</MudDataGrid>
 
 @code {
     private InputFile? fileInput;

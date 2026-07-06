@@ -13,6 +13,7 @@ using PackForge.Web.Backfill;
 using PackForge.Web.Observability;
 using PackForge.Web.Realtime;
 using PackForge.Web.Components;
+using MudBlazor.Services;
 using PackForge.Web.Data;
 using PackForge.Web.Storage;
 
@@ -23,6 +24,7 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddSignalR();
 builder.Services.AddSingleton<ProgressNotifier>();
+builder.Services.AddMudServices();
 
 builder.Services.AddPackForgeObservability(builder.Configuration);
 var authEnabled = builder.Services.AddEntraAuthentication(builder.Configuration);
