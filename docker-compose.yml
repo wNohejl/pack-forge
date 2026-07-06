@@ -1,0 +1,24 @@
+services:
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite
+    command: azurite --blobHost 0.0.0.0 --queueHost 0.0.0.0 --skipApiVersionCheck --loose
+    ports:
+      - "10000:10000" # blob
+      - "10001:10001" # queue
+    volumes:
+      - azurite-data:/data
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: packforge
+      POSTGRES_PASSWORD: packforge_dev
+      POSTGRES_DB: packforge
+    ports:
+      - "5433:5432" # host 5433: a native Postgres already owns 5432 on this machine
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+
+volumes:
+  azurite-data:
+  pg-data:

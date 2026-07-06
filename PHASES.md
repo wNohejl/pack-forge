@@ -2,15 +2,17 @@
 
 Walking skeleton first; every phase has a demonstrable exit criterion and a learning objective tied to a posting requirement. Cost posture: **$0/month until Phase 3** (Azurite emulator + Neon free tier + local workers), and near-$0 after (ACA scale-to-zero + free monthly grants).
 
-## Phase 0 — Walking skeleton: upload → blob → metadata → download ⬜
+## Phase 0 — Walking skeleton: upload → blob → metadata → download ✅ 2026-07-06
 
 **Goal:** thinnest end-to-end slice — a deployed-locally Blazor app that moves a real file into bucket storage without the bytes touching app-server memory.
 
-- [ ] `dotnet new` Blazor Web App (.NET 8, interactive auto) + solution layout (`src/PackForge.Web`, `src/PackForge.Core`, `tests/`)
-- [ ] `docker-compose.yml`: Azurite (blob emulator) + Postgres 16
-- [ ] EF Core model + migration: `uploads` table (id, filename, size, sha256, blob_uri, uploaded_at)
-- [ ] API endpoint issues short-lived SAS URL; JS interop chunked upload browser→Azurite
-- [ ] On upload complete: metadata row written, file listed with working download (SAS read) link
+- [x] `dotnet new` Blazor Web App (.NET 10, interactive server) + solution layout (`src/PackForge.Web`, `src/PackForge.Core`, `tests/`)
+- [x] `docker-compose.yml`: Azurite (blob emulator) + Postgres 16 (host port 5433 — native PG owns 5432)
+- [x] EF Core model + migration `InitUploads`: uploads table (id, filename, size, sha256, blob name, status, created_at)
+- [x] API endpoint issues short-lived SAS URL; JS chunked block upload browser→Azurite (`wwwroot/js/upload.js`)
+- [x] On upload complete: server streams SHA-256 (constant memory), row updated, list shows download (SAS redirect) link
+
+*Verified 2026-07-06: 100 MB round-trip, client/server SHA-256 match, app working set 123→145 MB (no buffering).*
 
 **Exit criterion:** upload a 100 MB file through the UI; it round-trips (download matches checksum) while app-server working set stays flat — proof the server never proxied the bytes.
 **Learning objective:** Blazor render modes + SAS-based direct-to-storage upload (AllianceBernstein: Blazor platform; the anti-SharePoint pattern).

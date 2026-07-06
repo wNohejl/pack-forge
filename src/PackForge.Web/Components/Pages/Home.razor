@@ -1,0 +1,106 @@
+@page "/"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using PackForge.Core
+@using PackForge.Web.Data
+@inject IDbContextFactory<PackForgeDbContext> DbFactory
+@inject IJSRuntime JS
+@implements IDisposable
+
+<PageTitle>PackForge — Uploads</PageTitle>
+
+<h1>PackForge</h1>
+<p>Upload a model file — it goes browser → blob storage directly via SAS; the server only records metadata and verifies the checksum.</p>
+
+<div class="upload-box">
+    <InputFile @ref="fileInput" />
+    <button @onclick="UploadAsync" disabled="@uploading">Upload</button>
+    @if (uploading)
+    {
+        <progress max="100" value="@progress"></progress> <span>@progress%</span>
+    }
+    @if (error is not null)
+    {
+        <p style="color:red">@error</p>
+    }
+</div>
+
+<h2>Uploads</h2>
+<table>
+    <thead>
+        <tr><th>File</th><th>Size</th><th>SHA-256</th><th>Status</th><th>Uploaded</th><th></th></tr>
+    </thead>
+    <tbody>
+        @foreach (var u in uploads)
+        {
+            <tr>
+                <td>@u.FileName</td>
+                <td>@FormatSize(u.SizeBytes)</td>
+                <td><code>@(u.Sha256 is null ? "—" : u.Sha256[..12] + "…")</code></td>
+                <td>@u.Status</td>
+                <td>@u.CreatedAt.ToLocalTime().ToString("g")</td>
+                <td>
+                    @if (u.Status == UploadStatus.Ready)
+                    {
+                        <a href="/api/uploads/@u.Id/download" target="_blank">download</a>
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private InputFile? fileInput;
+    private List<Upload> uploads = [];
+    private bool uploading;
+    private int progress;
+    private string? error;
+    private DotNetObjectReference<Home>? selfRef;
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private async Task RefreshAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        uploads = await db.Uploads.OrderByDescending(u => u.CreatedAt).Take(100).ToListAsync();
+    }
+
+    private async Task UploadAsync()
+    {
+        error = null;
+        uploading = true;
+        progress = 0;
+        selfRef ??= DotNetObjectReference.Create(this);
+        try
+        {
+            await JS.InvokeAsync<object>("packforge.upload", fileInput!.Element, selfRef);
+        }
+        catch (JSException ex)
+        {
+            error = ex.Message;
+        }
+        finally
+        {
+            uploading = false;
+            await RefreshAsync();
+        }
+    }
+
+    [JSInvokable]
+    public Task OnProgress(int percent)
+    {
+        progress = percent;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        >= 1 << 30 => $"{bytes / (double)(1 << 30):F1} GB",
+        >= 1 << 20 => $"{bytes / (double)(1 << 20):F1} MB",
+        >= 1 << 10 => $"{bytes / (double)(1 << 10):F1} KB",
+        _ => $"{bytes} B",
+    };
+
+    public void Dispose() => selfRef?.Dispose();
+}

@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PackForge.Core/PackForge.Core.csproj" />
+    <Project Path="src/PackForge.Web/PackForge.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PackForge.Tests/PackForge.Tests.csproj" />
+  </Folder>
+</Solution>
