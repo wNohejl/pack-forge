@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using PackForge.Core.Migration;
 using PackForge.Web.Data;
 using PackForge.Web.Observability;
+using PackForge.Web.Realtime;
 using PackForge.Web.Storage;
 
 namespace PackForge.Web.Backfill;
@@ -17,6 +18,7 @@ public class MigrationService(
     IEnumerable<IMigrationSource> sources,
     IDbContextFactory<PackForgeDbContext> dbFactory,
     BlobStorageService blobs,
+    ProgressNotifier progress,
     ILogger<MigrationService> logger)
 {
     private readonly object gate = new();
@@ -46,6 +48,19 @@ public class MigrationService(
 
     private async Task RunAsync()
     {
+        // Heartbeat: push progress to clients ~1/s while the run is active, instead of
+        // hundreds of per-file messages. A final push follows in the finally block.
+        using var heartbeat = new CancellationTokenSource();
+        var ticker = Task.Run(async () =>
+        {
+            while (!heartbeat.IsCancellationRequested)
+            {
+                await progress.MigrationChangedAsync();
+                try { await Task.Delay(TimeSpan.FromSeconds(1), heartbeat.Token); }
+                catch (OperationCanceledException) { break; }
+            }
+        });
+
         try
         {
             foreach (var source in sources)
@@ -72,6 +87,9 @@ public class MigrationService(
         finally
         {
             FinishedAt = DateTimeOffset.UtcNow;
+            heartbeat.Cancel();
+            await ticker;
+            await progress.MigrationChangedAsync();
         }
     }
 

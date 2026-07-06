@@ -9,9 +9,16 @@ public class PackForgeDbContext(DbContextOptions<PackForgeDbContext> options) : 
     public DbSet<Upload> Uploads => Set<Upload>();
     public DbSet<PackageBuild> PackageBuilds => Set<PackageBuild>();
     public DbSet<MigrationItem> MigrationItems => Set<MigrationItem>();
+    public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<OutboxMessage>(e =>
+        {
+            e.Property(o => o.QueueName).HasMaxLength(64);
+            e.HasIndex(o => o.SentAt); // dispatcher scans unsent rows
+        });
+
         modelBuilder.Entity<MigrationItem>(e =>
         {
             e.Property(i => i.SourceSystem).HasMaxLength(64);

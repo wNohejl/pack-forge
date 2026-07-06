@@ -1,12 +1,14 @@
 @page "/packages"
 @rendermode InteractiveServer
+@using Microsoft.AspNetCore.SignalR.Client
 @using Microsoft.EntityFrameworkCore
 @using PackForge.Core
 @using PackForge.Web.Data
+@using PackForge.Web.Realtime
 @inject IDbContextFactory<PackForgeDbContext> DbFactory
 @inject IHttpClientFactory HttpFactory
 @inject NavigationManager Nav
-@implements IDisposable
+@implements IAsyncDisposable
 
 <PageTitle>PackForge — Packages</PageTitle>
 
@@ -75,19 +77,24 @@
     private string? selectedUploadId;
     private string? message;
     private Dictionary<string, string[]> validationErrors = [];
-    private Timer? pollTimer;
+    private HubConnection? hub;
 
     protected override async Task OnInitializedAsync()
     {
         await RefreshAsync();
-        pollTimer = new Timer(async _ =>
+
+        // Live updates over SignalR (WebSockets) — the server pushes when a build
+        // changes state, replacing the old poll-every-2s timer.
+        hub = new HubConnectionBuilder()
+            .WithUrl(Nav.ToAbsoluteUri("/hubs/progress"))
+            .WithAutomaticReconnect()
+            .Build();
+        hub.On(ProgressHub.BuildsChanged, async () =>
         {
-            if (builds.Any(b => b.Status is BuildStatus.Queued or BuildStatus.Building))
-            {
-                await RefreshAsync();
-                await InvokeAsync(StateHasChanged);
-            }
-        }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+            await RefreshAsync();
+            await InvokeAsync(StateHasChanged);
+        });
+        await hub.StartAsync();
     }
 
     private async Task RefreshAsync()
@@ -140,5 +147,9 @@
 
     private record ValidationProblem(Dictionary<string, string[]> Errors);
 
-    public void Dispose() => pollTimer?.Dispose();
+    public async ValueTask DisposeAsync()
+    {
+        if (hub is not null)
+            await hub.DisposeAsync();
+    }
 }

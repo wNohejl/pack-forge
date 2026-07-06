@@ -11,6 +11,7 @@ using PackForge.Web.Auth;
 using PackForge.Web.Builds;
 using PackForge.Web.Backfill;
 using PackForge.Web.Observability;
+using PackForge.Web.Realtime;
 using PackForge.Web.Components;
 using PackForge.Web.Data;
 using PackForge.Web.Storage;
@@ -19,6 +20,9 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
+
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<ProgressNotifier>();
 
 builder.Services.AddPackForgeObservability(builder.Configuration);
 var authEnabled = builder.Services.AddEntraAuthentication(builder.Configuration);
@@ -34,14 +38,17 @@ if (blobConn.StartsWith("http", StringComparison.OrdinalIgnoreCase))
     var credential = new DefaultAzureCredential();
     builder.Services.AddSingleton(new BlobServiceClient(new Uri(blobConn), credential));
     builder.Services.AddSingleton(new QueueClient(new Uri($"{queueUri!.TrimEnd('/')}/{BuildWorker.QueueName}"), credential));
+    builder.Services.AddKeyedSingleton(BuildWorker.PoisonQueueKey, new QueueClient(new Uri($"{queueUri!.TrimEnd('/')}/{BuildWorker.PoisonQueueName}"), credential));
 }
 else
 {
     builder.Services.AddSingleton(new BlobServiceClient(blobConn));
     builder.Services.AddSingleton(new QueueClient(blobConn, BuildWorker.QueueName));
+    builder.Services.AddKeyedSingleton(BuildWorker.PoisonQueueKey, new QueueClient(blobConn, BuildWorker.PoisonQueueName));
 }
 builder.Services.AddSingleton<BlobStorageService>();
 builder.Services.AddHostedService<BuildWorker>();
+builder.Services.AddHostedService<OutboxDispatcher>();
 builder.Services.AddHttpClient();
 
 var legacyRoot = builder.Configuration["Migration:LegacyRoot"]
@@ -71,6 +78,8 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
+
+app.MapHub<ProgressHub>("/hubs/progress");
 
 // ---- Upload API ------------------------------------------------------------
 
@@ -134,7 +143,7 @@ app.MapGet("/api/uploads/{id:guid}/download", async (Guid id, IDbContextFactory<
 
 // ---- Package builds ----------------------------------------------------------
 
-app.MapPost("/api/packages", async (BuildRequest req, IDbContextFactory<PackForgeDbContext> dbf, BlobStorageService blobs, QueueClient queue) =>
+app.MapPost("/api/packages", async (BuildRequest req, IDbContextFactory<PackForgeDbContext> dbf, BlobStorageService blobs) =>
 {
     await using var db = await dbf.CreateDbContextAsync();
     var upload = await db.Uploads.FindAsync(req.UploadId);
@@ -179,8 +188,10 @@ app.MapPost("/api/packages", async (BuildRequest req, IDbContextFactory<PackForg
         ModelSha256 = modelSha,
     };
     db.PackageBuilds.Add(build);
+    // Outbox: the build row and its enqueue intent commit together. The dispatcher
+    // relays it to the queue — no orphaned build if we crash before the send.
+    db.OutboxMessages.Add(new OutboxMessage { QueueName = BuildWorker.QueueName, Body = build.Id.ToString() });
     await db.SaveChangesAsync();
-    await queue.SendMessageAsync(build.Id.ToString());
 
     return Results.Ok(new { build.Id, build.Version, reused = false });
 });

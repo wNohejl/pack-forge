@@ -3,11 +3,13 @@ using System.Security.Cryptography;
 using System.Text;
 using Azure.Storage.Queues;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using PackForge.Core;
 using PackForge.Core.Models;
 using PackForge.Core.Packaging;
 using PackForge.Web.Data;
 using PackForge.Web.Observability;
+using PackForge.Web.Realtime;
 using PackForge.Web.Storage;
 
 namespace PackForge.Web.Builds;
@@ -19,15 +21,21 @@ namespace PackForge.Web.Builds;
 /// </summary>
 public class BuildWorker(
     QueueClient queue,
+    [FromKeyedServices(BuildWorker.PoisonQueueKey)] QueueClient poisonQueue,
     IDbContextFactory<PackForgeDbContext> dbFactory,
     BlobStorageService blobs,
+    ProgressNotifier progress,
     ILogger<BuildWorker> logger) : BackgroundService
 {
     public const string QueueName = "builds";
+    public const string PoisonQueueName = "builds-poison";
+    public const string PoisonQueueKey = "poison";
+    private const int MaxDequeueCount = 5; // after this many failed attempts, dead-letter it
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
         await queue.CreateIfNotExistsAsync(cancellationToken: ct);
+        await poisonQueue.CreateIfNotExistsAsync(cancellationToken: ct);
         while (!ct.IsCancellationRequested)
         {
             var messages = await queue.ReceiveMessagesAsync(maxMessages: 8, visibilityTimeout: TimeSpan.FromMinutes(5), ct);
@@ -39,13 +47,53 @@ public class BuildWorker(
 
             foreach (var msg in messages.Value)
             {
-                if (Guid.TryParse(msg.Body.ToString(), out var buildId))
+                // Poison guard: a message we've already choked on too many times gets
+                // dead-lettered so it can't block the queue or retry forever.
+                if (msg.DequeueCount > MaxDequeueCount)
+                {
+                    await DeadLetterAsync(msg, "exceeded max dequeue count", ct);
+                    continue;
+                }
+
+                if (!Guid.TryParse(msg.Body.ToString(), out var buildId))
+                {
+                    await DeadLetterAsync(msg, "unparseable body", ct);
+                    continue;
+                }
+
+                try
+                {
                     await ProcessAsync(buildId, ct);
-                else
-                    logger.LogWarning("Discarding malformed build message: {Body}", msg.Body.ToString());
-                await queue.DeleteMessageAsync(msg.MessageId, msg.PopReceipt, ct);
+                    await queue.DeleteMessageAsync(msg.MessageId, msg.PopReceipt, ct); // success → remove
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    // Transient failure: leave the message so it redelivers after the
+                    // visibility timeout. DequeueCount climbs; the guard above eventually DLQs it.
+                    logger.LogWarning(ex, "Build {BuildId} attempt {Attempt} failed; will retry", buildId, msg.DequeueCount);
+                }
             }
         }
+    }
+
+    private async Task DeadLetterAsync(Azure.Storage.Queues.Models.QueueMessage msg, string reason, CancellationToken ct)
+    {
+        logger.LogError("Dead-lettering build message {MessageId} ({Reason}): {Body}", msg.MessageId, reason, msg.Body.ToString());
+        await poisonQueue.SendMessageAsync(msg.MessageText, ct);
+        if (Guid.TryParse(msg.Body.ToString(), out var buildId))
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var build = await db.PackageBuilds.FindAsync([buildId], ct);
+            if (build is not null && build.Status != BuildStatus.Ready)
+            {
+                build.Status = BuildStatus.Failed;
+                build.Error = $"Dead-lettered: {reason}";
+                build.CompletedAt = DateTimeOffset.UtcNow;
+                await db.SaveChangesAsync(ct);
+                await progress.BuildsChangedAsync();
+            }
+        }
+        await queue.DeleteMessageAsync(msg.MessageId, msg.PopReceipt, ct);
     }
 
     private async Task ProcessAsync(Guid buildId, CancellationToken ct)
@@ -57,6 +105,7 @@ public class BuildWorker(
 
         build.Status = BuildStatus.Building;
         await db.SaveChangesAsync(ct);
+        await progress.BuildsChangedAsync();
 
         using var activity = Telemetry.Source.StartActivity("build-package");
         activity?.SetTag("model.name", build.ModelName);
@@ -84,14 +133,17 @@ public class BuildWorker(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            build.Status = BuildStatus.Failed;
+            // Reset to Queued and rethrow — the receive loop leaves the message for
+            // redelivery (transient), or dead-letters it once DequeueCount is exhausted.
+            build.Status = BuildStatus.Queued;
             build.Error = ex.Message;
-            build.CompletedAt = DateTimeOffset.UtcNow;
             activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
-            logger.LogError(ex, "Build {BuildId} failed", buildId);
+            await db.SaveChangesAsync(ct);
+            throw;
         }
 
         await db.SaveChangesAsync(ct);
+        await progress.BuildsChangedAsync();
     }
 
     private static string SafeName(string name)

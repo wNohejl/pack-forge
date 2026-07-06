@@ -1,6 +1,6 @@
 # PackForge — Phases
 
-**Status: Phases 0–3 complete — built and locally verified 2026-07-06 (commits `1aa4553`→`6f5c8dc`, 24/24 tests, $0 spend).** The one remaining step, a live `azd up` deploy, is intentionally deferred to hold the $0/month cost posture until an interview demo justifies it.
+**Status: Phases 0–4 complete — built and locally verified 2026-07-06 (24/24 tests, $0 spend).** Phases 0–3 are the core product; Phase 4 begins the posting-targeting roadmap (`vault/Outputs/2026-07-06-packforge-posting-roadmap.md`). The one deferred step, a live `azd up` deploy, is held back to keep the $0/month cost posture until an interview demo justifies it.
 
 Walking skeleton first; every phase has a demonstrable exit criterion and a learning objective tied to a posting requirement. Cost posture: **$0/month through Phase 3** (Azurite emulator for blob+queue, Postgres in Docker or Neon free tier, local workers), and ~$0–5/month only if/when the cloud footprint is actually deployed (ACA scale-to-zero + free monthly grants).
 
@@ -70,6 +70,20 @@ Each phase below carries its checklist, the demonstrable **exit criterion**, and
 **Learning objective:** Azure depth — ACA, KEDA scaling, managed identity, telemetry (profile gap: cloud depth; Starbucks: telemetry + release gates; Husch Blackwell: Azure services).
 **Cost:** ≈$0–5/month when deployed (ACA free grant 180k vCPU-s + 360k GiB-s, blob pennies, Neon free); +$13–15/month only if Flexible Server is switched on. **$0 as it stands** — nothing is deployed.
 
+## Phase 4 — Distributed + real-time core ✅ 2026-07-06
+
+**Goal:** close the reliability and real-time gaps that target Oracle (distributed systems) and Schneider (WebSockets/real-time), while fixing real defects in the shipped code. Front end stays **Blazor** — SignalR is the real-time transport, not a JS framework.
+
+- [x] **Transactional outbox** (`OutboxMessage` + `OutboxDispatcher`): the package-build row and its enqueue intent commit in one DB transaction; a dispatcher relays to the queue. Fixes the prior bug where a crash between `SaveChanges` and `SendMessage` orphaned a build.
+- [x] **Dead-letter queue**: the build worker leaves failed messages for redelivery (visibility timeout), climbing `DequeueCount`; past `MaxDequeueCount` (or on an unparseable body) the message is moved to `builds-poison` and the build marked Failed — no poison message blocks or retries forever.
+- [x] **SignalR live progress** (`ProgressHub` + `ProgressNotifier`): build and migration pages subscribe with a `HubConnection` over WebSockets; server producers push on state change. Replaced the Timer-based polling in both `/packages` and `/migration`.
+
+**Exit criterion:** submit a build and see it flow outbox → dispatcher → worker with the page updating live (no polling); inject a poison message and see it dead-lettered, not retried forever.
+
+*Verified 2026-07-06: outbox row marked sent (Attempts=1) and the build reached Ready; an injected unparseable message was dead-lettered on first receipt (logged, moved to poison queue, removed from main); the `/packages` table went 7→8 rows and reached Ready purely via SignalR push with no timer in the component. 24/24 tests still green.*
+**Learning objective:** distributed-systems patterns (transactional outbox, DLQ, idempotent consumer) + real-time push (SignalR/WebSockets) — Oracle (distributed cloud services), Schneider (real-time messaging).
+**Cost:** $0 — Azurite queue + local hosted services.
+
 ## Postings evidenced
 
 | Posting | Requirement exercised |
@@ -87,6 +101,7 @@ Each phase below carries its checklist, the demonstrable **exit criterion**, and
 | 1 Math → package | ✅ | Reproducible versioned packages (identical input ⇒ identical checksum); 24/24 tests |
 | 2 Migration engine | ✅ | 556 files / 1.28 GB, 541 verified + 15 corrupt failed, dual-read served throughout |
 | 3 Azure + hardening | ✅ code/IaC | Bicep validates; OTel spans+metrics emit; release gate blocks tampered checksum (400); container builds |
+| 4 Distributed + real-time | ✅ | Outbox makes enqueue atomic; poison message dead-lettered; SignalR pushes live build/migration updates (polling removed) |
 
 **Definition of done met:** every phase's exit criterion was demonstrated and recorded, the whole thing runs on free local emulators, and the tree is committed clean at `6f5c8dc`.
 

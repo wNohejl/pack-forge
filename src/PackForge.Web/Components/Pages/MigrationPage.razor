@@ -1,9 +1,11 @@
 @page "/migration"
 @rendermode InteractiveServer
 @using System.Text.Json
+@using Microsoft.AspNetCore.SignalR.Client
+@using PackForge.Web.Realtime
 @inject IHttpClientFactory HttpFactory
 @inject NavigationManager Nav
-@implements IDisposable
+@implements IAsyncDisposable
 
 <PageTitle>PackForge — Migration</PageTitle>
 
@@ -51,19 +53,21 @@
 
 @code {
     private Report? report;
-    private Timer? pollTimer;
+    private HubConnection? hub;
 
     protected override async Task OnInitializedAsync()
     {
         await RefreshAsync();
-        pollTimer = new Timer(async _ =>
+        hub = new HubConnectionBuilder()
+            .WithUrl(Nav.ToAbsoluteUri("/hubs/progress"))
+            .WithAutomaticReconnect()
+            .Build();
+        hub.On(ProgressHub.MigrationChanged, async () =>
         {
-            if (report?.Running == true)
-            {
-                await RefreshAsync();
-                await InvokeAsync(StateHasChanged);
-            }
-        }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+            await RefreshAsync();
+            await InvokeAsync(StateHasChanged);
+        });
+        await hub.StartAsync();
     }
 
     private HttpClient Client()
@@ -101,5 +105,9 @@
 
     private record Failure(string SourceSystem, string SourcePath, string? Error);
 
-    public void Dispose() => pollTimer?.Dispose();
+    public async ValueTask DisposeAsync()
+    {
+        if (hub is not null)
+            await hub.DisposeAsync();
+    }
 }
