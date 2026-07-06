@@ -1,6 +1,10 @@
 # PackForge — Phases
 
-Walking skeleton first; every phase has a demonstrable exit criterion and a learning objective tied to a posting requirement. Cost posture: **$0/month until Phase 3** (Azurite emulator + Neon free tier + local workers), and near-$0 after (ACA scale-to-zero + free monthly grants).
+**Status: Phases 0–3 complete — built and locally verified 2026-07-06 (commits `1aa4553`→`6f5c8dc`, 24/24 tests, $0 spend).** The one remaining step, a live `azd up` deploy, is intentionally deferred to hold the $0/month cost posture until an interview demo justifies it.
+
+Walking skeleton first; every phase has a demonstrable exit criterion and a learning objective tied to a posting requirement. Cost posture: **$0/month through Phase 3** (Azurite emulator for blob+queue, Postgres in Docker or Neon free tier, local workers), and ~$0–5/month only if/when the cloud footprint is actually deployed (ACA scale-to-zero + free monthly grants).
+
+Each phase below carries its checklist, the demonstrable **exit criterion**, and an italicized *Verified* line recording the evidence captured when it was met.
 
 ## Phase 0 — Walking skeleton: upload → blob → metadata → download ✅ 2026-07-06
 
@@ -74,3 +78,30 @@ Walking skeleton first; every phase has a demonstrable exit criterion and a lear
 | Husch Blackwell Developer | Azure services, ETL migration with verification, EF code-first, REST |
 | Starbucks Engineer Senior+ | Build/release engineering, telemetry, automation, release gates |
 | Oracle 338704 (provisional) | Backend services + APIs for distributed cloud systems |
+
+## Completion record
+
+| Phase | Result | Key evidence |
+|---|---|---|
+| 0 Walking skeleton | ✅ | 100 MB SAS round-trip, checksums match, app working set flat (no buffering) |
+| 1 Math → package | ✅ | Reproducible versioned packages (identical input ⇒ identical checksum); 24/24 tests |
+| 2 Migration engine | ✅ | 556 files / 1.28 GB, 541 verified + 15 corrupt failed, dual-read served throughout |
+| 3 Azure + hardening | ✅ code/IaC | Bicep validates; OTel spans+metrics emit; release gate blocks tampered checksum (400); container builds |
+
+**Definition of done met:** every phase's exit criterion was demonstrated and recorded, the whole thing runs on free local emulators, and the tree is committed clean at `6f5c8dc`.
+
+### Remaining follow-ups (outside the phase plan)
+
+- [ ] Push to `github.com/wNohejl/pack-forge` (public) — pipeline stage 7; currently local-only
+- [ ] Draft the résumé bullet into `Career/resume/base.md` (after push)
+- [ ] Optional: `azd up` for a live public demo (~$0–5/mo) when an interview warrants it
+- [ ] Optional feature backlog: CSV data inputs for models (deferred from Phase 1); richer math functions if a posting needs them
+
+### Run it
+
+```
+docker compose up -d                      # Azurite (blob+queue) + Postgres :5433
+dotnet run --project src/PackForge.Web     # http://localhost:5221
+dotnet test                                # 24 tests
+pwsh scripts/seed-legacy.ps1               # seed the migration demo corpus
+```
