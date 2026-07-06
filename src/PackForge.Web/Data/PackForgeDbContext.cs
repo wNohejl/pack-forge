@@ -6,9 +6,21 @@ namespace PackForge.Web.Data;
 public class PackForgeDbContext(DbContextOptions<PackForgeDbContext> options) : DbContext(options)
 {
     public DbSet<Upload> Uploads => Set<Upload>();
+    public DbSet<PackageBuild> PackageBuilds => Set<PackageBuild>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<PackageBuild>(e =>
+        {
+            e.Property(b => b.ModelName).HasMaxLength(256);
+            e.Property(b => b.ModelSha256).HasMaxLength(64);
+            e.Property(b => b.PackageSha256).HasMaxLength(64);
+            e.Property(b => b.BlobName).HasMaxLength(1024);
+            e.Property(b => b.Status).HasConversion<string>().HasMaxLength(16);
+            e.HasIndex(b => new { b.ModelName, b.Version }).IsUnique();
+            e.HasIndex(b => b.ModelSha256);
+        });
+
         modelBuilder.Entity<Upload>(e =>
         {
             e.Property(u => u.FileName).HasMaxLength(512);

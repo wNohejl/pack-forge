@@ -1,0 +1,126 @@
+@page "/packages"
+@rendermode InteractiveServer
+@using Microsoft.EntityFrameworkCore
+@using PackForge.Core
+@using PackForge.Web.Data
+@inject IDbContextFactory<PackForgeDbContext> DbFactory
+@inject IHttpClientFactory HttpFactory
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>PackForge — Packages</PageTitle>
+
+<h1>Packages</h1>
+<p>Pick an uploaded model definition (.json) and build a versioned deployment package. Builds run asynchronously off the storage queue.</p>
+
+<div class="upload-box">
+    <select @bind="selectedUploadId">
+        <option value="">— choose a ready upload —</option>
+        @foreach (var u in modelUploads)
+        {
+            <option value="@u.Id">@u.FileName (@u.CreatedAt.ToLocalTime().ToString("g"))</option>
+        }
+    </select>
+    <button @onclick="BuildAsync" disabled="@(string.IsNullOrEmpty(selectedUploadId))">Build package</button>
+    @if (message is not null)
+    {
+        <p>@message</p>
+    }
+    @if (validationErrors.Count > 0)
+    {
+        <ul style="color:red">
+            @foreach (var e in validationErrors)
+            {
+                <li><strong>@e.Key:</strong> @string.Join("; ", e.Value)</li>
+            }
+        </ul>
+    }
+</div>
+
+<table>
+    <thead>
+        <tr><th>Model</th><th>Version</th><th>Status</th><th>Package SHA-256</th><th>Created</th><th></th></tr>
+    </thead>
+    <tbody>
+        @foreach (var b in builds)
+        {
+            <tr>
+                <td>@b.ModelName</td>
+                <td>v@(b.Version)</td>
+                <td>@b.Status @(b.Error is null ? "" : $"— {b.Error}")</td>
+                <td><code>@(b.PackageSha256 is null ? "—" : b.PackageSha256[..12] + "…")</code></td>
+                <td>@b.CreatedAt.ToLocalTime().ToString("g")</td>
+                <td>
+                    @if (b.Status == BuildStatus.Ready)
+                    {
+                        <a href="/api/packages/@b.Id/download" target="_blank">download</a>
+                    }
+                </td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private List<Upload> modelUploads = [];
+    private List<PackageBuild> builds = [];
+    private string? selectedUploadId;
+    private string? message;
+    private Dictionary<string, string[]> validationErrors = [];
+    private Timer? pollTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        pollTimer = new Timer(async _ =>
+        {
+            if (builds.Any(b => b.Status is BuildStatus.Queued or BuildStatus.Building))
+            {
+                await RefreshAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+    }
+
+    private async Task RefreshAsync()
+    {
+        await using var db = await DbFactory.CreateDbContextAsync();
+        modelUploads = await db.Uploads
+            .Where(u => u.Status == UploadStatus.Ready && u.FileName.EndsWith(".json"))
+            .OrderByDescending(u => u.CreatedAt).Take(50).ToListAsync();
+        builds = await db.PackageBuilds.OrderByDescending(b => b.CreatedAt).Take(100).ToListAsync();
+    }
+
+    private async Task BuildAsync()
+    {
+        message = null;
+        validationErrors = [];
+        using var http = HttpFactory.CreateClient();
+        http.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await http.PostAsJsonAsync("/api/packages", new { uploadId = selectedUploadId });
+        if (resp.IsSuccessStatusCode)
+        {
+            var result = await resp.Content.ReadFromJsonAsync<BuildResponse>();
+            message = result!.Reused
+                ? $"Identical model content — reusing existing package v{result.Version}."
+                : $"Queued build v{result.Version}.";
+        }
+        else if (resp.StatusCode == System.Net.HttpStatusCode.BadRequest && resp.Content.Headers.ContentType?.MediaType == "application/problem+json")
+        {
+            var problem = await resp.Content.ReadFromJsonAsync<ValidationProblem>();
+            validationErrors = problem?.Errors ?? [];
+            message = "Model failed validation:";
+        }
+        else
+        {
+            message = await resp.Content.ReadAsStringAsync();
+        }
+        await RefreshAsync();
+    }
+
+    private record BuildResponse(Guid Id, int Version, bool Reused);
+
+    private record ValidationProblem(Dictionary<string, string[]> Errors);
+
+    public void Dispose() => pollTimer?.Dispose();
+}

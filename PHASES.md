@@ -18,15 +18,17 @@ Walking skeleton first; every phase has a demonstrable exit criterion and a lear
 **Learning objective:** Blazor render modes + SAS-based direct-to-storage upload (AllianceBernstein: Blazor platform; the anti-SharePoint pattern).
 **Cost:** $0 — everything local/emulated.
 
-## Phase 1 — Math in, package out ⬜
+## Phase 1 — Math in, package out ✅ 2026-07-06
 
 **Goal:** the core product loop — validate an uploaded model definition and build a reproducible, versioned deployment package asynchronously.
 
-- [ ] Model format v1 (constrained, no arbitrary code): JSON manifest of parameters + expressions + optional CSV data refs
-- [ ] Validator with actionable errors (unknown symbol, dimension mismatch) + unit tests
-- [ ] Storage Queue message on submit; hosted-service worker consumes, evaluates model, emits `package-vN.zip` (manifest.json + outputs + inputs snapshot) to `packages/`
-- [ ] `packages` + `package_versions` tables; SHA-256 recorded; same input ⇒ byte-identical package (reproducibility test)
-- [ ] UI: package list, version history, download
+- [x] Model format v1 (constrained, no arbitrary code): JSON of parameters + ordered expressions; recursive-descent parser, whitelist functions (CSV refs deferred)
+- [x] Validator with actionable errors (unknown symbol, forward reference, duplicates, syntax) + 24 unit tests
+- [x] Storage Queue message on submit; hosted-service worker consumes, evaluates model, emits versioned zip (manifest + inputs snapshot + results) to `packages/`
+- [x] `package_builds` table (unique ModelName+Version, ModelSha256 index); reproducible builds — fixed zip timestamps, no wall-clock in manifest; identical content dedupes to the existing version
+- [x] UI: `/packages` — submit from ready uploads, live status polling, version history, download
+
+*Verified 2026-07-06: v1 built → param tweak → v2 with distinct SHA-256 → identical re-submit reused v1 (`reused: true`); 24/24 tests.*
 
 **Exit criterion:** upload a model → package v1 downloadable; tweak a parameter, re-submit → v2 appears with distinct checksum; identical re-submit reproduces the identical checksum.
 **Learning objective:** queue-driven async compute + reproducible build/release engineering (AllianceBernstein: engine evaluating user-supplied math; Starbucks: build & release engineering).
