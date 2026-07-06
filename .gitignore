@@ -1,0 +1,22 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+artifacts/
+
+## Local secrets & env
+*.env
+appsettings.*.local.json
+secrets.json
+
+## Azurite / local data
+__azurite*__/
+__blobstorage__/
+__queuestorage__/
+*.db
+
+## OS
+Thumbs.db
+.DS_Store
