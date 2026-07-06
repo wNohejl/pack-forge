@@ -34,6 +34,20 @@ jobs:
         with:
           name: test-results
           path: '**/test-results.trx'
+      # Supply-chain: fail the build on known-vulnerable dependencies.
+      - name: Vulnerable dependency scan
+        run: |
+          dotnet list package --vulnerable --include-transitive 2>&1 | tee vuln.txt
+          ! grep -q -E "Critical|High" vuln.txt
+      # Supply-chain: generate a CycloneDX SBOM for the solution.
+      - name: Generate SBOM
+        run: |
+          dotnet tool install --global CycloneDX
+          dotnet CycloneDX PackForge.slnx -o sbom
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom/
 
   container:
     runs-on: ubuntu-latest
@@ -42,6 +56,14 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build container image
         run: docker build -t packforge:${{ github.sha }} .
+      # Supply-chain: scan the built image; fail on CRITICAL/HIGH OS/library CVEs.
+      - name: Scan image (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: packforge:${{ github.sha }}
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          ignore-unfixed: true
 
   # Release gate: only tagged builds deploy. `azd deploy` requires the image + green
   # tests above; the app's own /publish endpoint gates each package on checksum re-verify.

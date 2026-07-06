@@ -32,12 +32,23 @@ public class PackageBuilderTests
     }
 
     [Fact]
-    public void Package_contains_manifest_inputs_and_results()
+    public void Package_contains_manifest_inputs_results_and_sbom()
     {
         using var zip = new ZipArchive(new MemoryStream(PackageBuilder.Build(Model(), "abc123", 1)), ZipArchiveMode.Read);
-        Assert.Equal(["manifest.json", "inputs/model.json", "outputs/results.json"], zip.Entries.Select(e => e.FullName).ToArray());
+        Assert.Equal(["manifest.json", "inputs/model.json", "outputs/results.json", "sbom.json"], zip.Entries.Select(e => e.FullName).ToArray());
 
         using var reader = new StreamReader(zip.GetEntry("outputs/results.json")!.Open());
         Assert.Contains("1024", reader.ReadToEnd()); // 2^10
+    }
+
+    [Fact]
+    public void Sbom_lists_contents_with_sha256_digests()
+    {
+        using var zip = new ZipArchive(new MemoryStream(PackageBuilder.Build(Model(), "abc123", 1)), ZipArchiveMode.Read);
+        using var reader = new StreamReader(zip.GetEntry("sbom.json")!.Open());
+        var sbom = reader.ReadToEnd();
+        Assert.Contains("CycloneDX", sbom);
+        Assert.Contains("outputs/results.json", sbom);
+        Assert.Contains("SHA-256", sbom);
     }
 }

@@ -1,6 +1,6 @@
 # PackForge — Phases
 
-**Status: Phases 0–5 complete — built and locally verified 2026-07-06 (27/27 tests, $0 spend).** Phases 0–3 are the core product; Phases 4–5 begin the posting-targeting roadmap (`vault/Outputs/2026-07-06-packforge-posting-roadmap.md`). The one deferred step, a live `azd up` deploy, is held back to keep the $0/month cost posture until an interview demo justifies it.
+**Status: Phases 0–7 complete — built and locally verified 2026-07-06 (28/28 tests, $0 spend).** Phases 0–3 are the core product; Phases 4–7 are the posting-targeting roadmap (`vault/Outputs/2026-07-06-packforge-posting-roadmap.md`). Two items are intentionally deferred: a live `azd up` deploy (holds the $0/month posture) and the Go verifier CLI (that story belongs to the ServicePulse project — not duplicated here).
 
 Walking skeleton first; every phase has a demonstrable exit criterion and a learning objective tied to a posting requirement. Cost posture: **$0/month through Phase 3** (Azurite emulator for blob+queue, Postgres in Docker or Neon free tier, local workers), and ~$0–5/month only if/when the cloud footprint is actually deployed (ACA scale-to-zero + free monthly grants).
 
@@ -109,9 +109,24 @@ Each phase below carries its checklist, the demonstrable **exit criterion**, and
 
 **Exit criterion:** the reconciliation grid shows per-source verified/failed counts and verification rate computed by the DB stored procedure; the app runs on either provider.
 
-*Verified 2026-07-06: MudBlazor UI renders on all pages with no circuit errors, grids sort/filter, SignalR live updates intact. Reconciliation stored function on Postgres returned fileshare 304/304 (100%) and sharepoint 237/252 (94.0%, 15 failed) via EF FromSqlRaw. 27/27 tests. (SQL Server T-SQL path: see run note for live-verify status.)*
+*Verified 2026-07-06: MudBlazor UI renders on all pages with no circuit errors, grids sort/filter, SignalR live updates intact. Reconciliation ran on **both** providers via EF FromSqlRaw — Postgres function (fileshare 304/304, sharepoint 237/252 = 94.0%) and SQL Server 2022 T-SQL proc `dbo.MigrationReconciliation` (seeded rows aggregated: fileshare 66.7%, sharepoint 50%). 27/27 tests.*
 **Learning objective:** modern component-SPA (Blazor/MudBlazor), multi-provider EF Core, SQL Server + stored procedures — Husch Blackwell (.NET, React/Angular, SQL Server, stored procedures, ETL, EF code-first).
 **Cost:** $0 — MudBlazor is free; Postgres local; SQL Server is an optional local container.
+
+## Phase 7 — Supply-chain + ops hardening ✅ 2026-07-06
+
+**Goal:** the Starbucks "security by design, hardened baselines, deep telemetry, build/release" themes — as concrete, verifiable mechanics.
+
+- [x] **SBOM in every package:** each deployment package now includes `sbom.json` (CycloneDX) listing its contents with SHA-256 digests — reproducible, so a consumer can verify exactly what shipped
+- [x] **Health probes:** `/health` (liveness) and `/health/ready` (readiness — checks database + blob), for ACA probes and load balancers
+- [x] **Scan-gated CI:** `dotnet list package --vulnerable` fails on High/Critical; CycloneDX SBOM generated and uploaded; Trivy scans the container image (fail on CRITICAL/HIGH)
+- [~] **Go verifier CLI:** *deferred* — the Go story is [[../Projects/ServicePulse|ServicePulse]]'s (roadmap scope rule: don't duplicate another project's toolkit). Go isn't installed here; not worth a toolchain just to overlap.
+
+**Exit criterion:** a built package contains a valid SBOM of its contents; `/health/ready` reports each dependency; CI gates on vulnerabilities and image CVEs.
+
+*Verified 2026-07-06: `/health` → "Healthy", `/health/ready` → database + blob both Healthy; a built package's `sbom.json` listed manifest/model/results each with a SHA-256 digest; 28/28 tests (2 new SBOM tests). CI scan steps are workflow artifacts (run in GitHub Actions, not locally).*
+**Learning objective:** supply-chain security (SBOM, dependency + image scanning), health/readiness, release gating — Starbucks (hardened baselines, security by design, build/release, telemetry).
+**Cost:** $0 — all local/CI-native tooling.
 
 ## Postings evidenced
 
@@ -132,21 +147,24 @@ Each phase below carries its checklist, the demonstrable **exit criterion**, and
 | 3 Azure + hardening | ✅ code/IaC | Bicep validates; OTel spans+metrics emit; release gate blocks tampered checksum (400); container builds |
 | 4 Distributed + real-time | ✅ | Outbox makes enqueue atomic; poison message dead-lettered; SignalR pushes live build/migration updates (polling removed) |
 | 5 C++ math kernel | ✅ | Native RPN evaluator P/Invoked; C# parses, C++ computes; managed fallback; results reproducible across evaluators |
+| 6 Husch Blackwell stack | ✅ | MudBlazor SPA (grids/forms, stays Blazor); multi-provider EF; reconciliation stored proc verified on Postgres + SQL Server |
+| 7 Supply-chain + ops | ✅ | SBOM in every package; health/readiness probes; scan-gated CI (vuln + Trivy). Go CLI deferred to ServicePulse |
 
-**Definition of done met:** every phase's exit criterion was demonstrated and recorded, the whole thing runs on free local emulators, and the tree is committed clean at `6f5c8dc`.
+**Definition of done met:** every phase's exit criterion was demonstrated and recorded, the whole thing runs on free local emulators, and each phase is committed with its verification evidence.
 
 ### Remaining follow-ups (outside the phase plan)
 
-- [x] Push to `github.com/wNohejl/pack-forge` (public) — done 2026-07-06, 7 commits
+- [x] Push to `github.com/wNohejl/pack-forge` (public) — done 2026-07-06
 - [x] Draft the résumé bullet into `Career/resume/base.md` — done 2026-07-06 (Projects entry + skills updated)
 - [ ] Optional: `azd up` for a live public demo (~$0–5/mo) when an interview warrants it
-- [ ] Optional feature backlog: CSV data inputs for models (deferred from Phase 1); richer math functions if a posting needs them
+- [ ] Optional: Go verifier CLI — only if the Go/PackForge overlap becomes worth it; ServicePulse is the primary Go evidence
+- [ ] Optional feature backlog: CSV data inputs for models (deferred from Phase 1)
 
 ### Run it
 
 ```
 docker compose up -d                      # Azurite (blob+queue) + Postgres :5433
-dotnet run --project src/PackForge.Web     # http://localhost:5221
-dotnet test                                # 24 tests
+dotnet run --project src/PackForge.Web     # http://localhost:5221  (add Database__Provider=SqlServer + `--profile sqlserver` for the SQL Server path)
+dotnet test                                # 28 tests
 pwsh scripts/seed-legacy.ps1               # seed the migration demo corpus
 ```

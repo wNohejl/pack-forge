@@ -38,15 +38,41 @@ public static class PackageBuilder
             expressionCount = model.Expressions.Count,
         };
 
+        var modelJson = model.ToJson();
+        var resultsJson = JsonSerializer.Serialize(results, JsonOptions);
+        var manifestJson = JsonSerializer.Serialize(manifest, JsonOptions);
+
+        // Supply-chain: every package carries a CycloneDX-style SBOM of its own
+        // contents with SHA-256 digests, so a consumer can verify what's inside.
+        var sbom = new
+        {
+            bomFormat = "CycloneDX",
+            specVersion = "1.5",
+            components = new[]
+            {
+                Component("manifest.json", manifestJson),
+                Component("inputs/model.json", modelJson),
+                Component("outputs/results.json", resultsJson),
+            },
+        };
+
         using var ms = new MemoryStream();
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
         {
-            AddEntry(zip, "manifest.json", JsonSerializer.Serialize(manifest, JsonOptions));
-            AddEntry(zip, "inputs/model.json", model.ToJson());
-            AddEntry(zip, "outputs/results.json", JsonSerializer.Serialize(results, JsonOptions));
+            AddEntry(zip, "manifest.json", manifestJson);
+            AddEntry(zip, "inputs/model.json", modelJson);
+            AddEntry(zip, "outputs/results.json", resultsJson);
+            AddEntry(zip, "sbom.json", JsonSerializer.Serialize(sbom, JsonOptions));
         }
         return ms.ToArray();
     }
+
+    private static object Component(string name, string content) => new
+    {
+        type = "file",
+        name,
+        hashes = new[] { new { alg = "SHA-256", content = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(content))) } },
+    };
 
     private static void AddEntry(ZipArchive zip, string name, string content)
     {

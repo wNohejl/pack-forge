@@ -59,6 +59,11 @@ builder.Services.AddHostedService<BuildWorker>();
 builder.Services.AddHostedService<OutboxDispatcher>();
 builder.Services.AddHttpClient();
 
+// Health: liveness is trivial; readiness checks the DB and blob dependencies.
+builder.Services.AddHealthChecks()
+    .AddDbContextCheck<PackForgeDbContext>("database", tags: ["ready"])
+    .AddCheck<PackForge.Web.Observability.BlobHealthCheck>("blob", tags: ["ready"]);
+
 var legacyRoot = builder.Configuration["Migration:LegacyRoot"]
     ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", ".legacy-share"));
 builder.Services.AddSingleton<IMigrationSource>(new LocalFolderSource("fileshare", Path.Combine(legacyRoot, "fileshare")));
@@ -88,6 +93,23 @@ app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();
 
 app.MapHub<ProgressHub>("/hubs/progress");
+
+// Liveness (is the process up) vs readiness (are DB + blob reachable) — the ACA
+// probes and any load balancer use these.
+app.MapHealthChecks("/health", new() { Predicate = _ => false });
+app.MapHealthChecks("/health/ready", new()
+{
+    Predicate = check => check.Tags.Contains("ready"),
+    ResponseWriter = async (ctx, report) =>
+    {
+        ctx.Response.ContentType = "application/json";
+        await ctx.Response.WriteAsJsonAsync(new
+        {
+            status = report.Status.ToString(),
+            checks = report.Entries.Select(e => new { name = e.Key, status = e.Value.Status.ToString() }),
+        });
+    },
+});
 
 // ---- Upload API ------------------------------------------------------------
 
