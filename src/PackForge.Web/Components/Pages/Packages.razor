@@ -54,6 +54,14 @@
                     @if (b.Status == BuildStatus.Ready)
                     {
                         <a href="/api/packages/@b.Id/download" target="_blank">download</a>
+                        @if (b.Published)
+                        {
+                            <span title="@b.PublishedAt?.ToLocalTime().ToString("g")"> · published ✓</span>
+                        }
+                        else
+                        {
+                            <text> · </text><button class="link" @onclick="() => PublishAsync(b.Id)">publish</button>
+                        }
                     }
                 </td>
             </tr>
@@ -115,6 +123,16 @@
         {
             message = await resp.Content.ReadAsStringAsync();
         }
+        await RefreshAsync();
+    }
+
+    private async Task PublishAsync(Guid id)
+    {
+        message = null;
+        using var http = HttpFactory.CreateClient();
+        http.BaseAddress = new Uri(Nav.BaseUri);
+        var resp = await http.PostAsync($"/api/packages/{id}/publish", null);
+        message = resp.IsSuccessStatusCode ? "Package published — release gate passed." : await resp.Content.ReadAsStringAsync();
         await RefreshAsync();
     }
 

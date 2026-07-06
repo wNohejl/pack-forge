@@ -1,0 +1,7 @@
+**/bin/
+**/obj/
+.git/
+.legacy-share/
+__azurite*__/
+**/*.user
+docs/

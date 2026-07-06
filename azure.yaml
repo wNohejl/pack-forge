@@ -1,0 +1,12 @@
+# azd project file — `azd up` provisions infra/main.bicep and deploys the web image.
+name: pack-forge
+metadata:
+  template: pack-forge@0.3.0
+services:
+  web:
+    project: ./src/PackForge.Web
+    language: dotnet
+    host: containerapp
+    docker:
+      path: ../../Dockerfile
+      context: ../..

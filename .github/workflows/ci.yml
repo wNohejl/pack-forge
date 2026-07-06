@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: packforge
+          POSTGRES_PASSWORD: packforge_dev
+          POSTGRES_DB: packforge
+        ports: [ '5433:5432' ]
+        options: >-
+          --health-cmd "pg_isready -U packforge"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore
+      - run: dotnet build --no-restore -c Release
+      - run: dotnet test --no-build -c Release --logger "trx;LogFileName=test-results.trx"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: '**/test-results.trx'
+
+  container:
+    runs-on: ubuntu-latest
+    needs: build-test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build container image
+        run: docker build -t packforge:${{ github.sha }} .
+
+  # Release gate: only tagged builds deploy. `azd deploy` requires the image + green
+  # tests above; the app's own /publish endpoint gates each package on checksum re-verify.
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [ build-test, container ]
+    if: startsWith(github.ref, 'refs/tags/v')
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "azd deploy would run here with OIDC federated credentials (no stored secrets)."

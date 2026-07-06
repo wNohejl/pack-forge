@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using PackForge.Core.Migration;
 using PackForge.Web.Data;
+using PackForge.Web.Observability;
 using PackForge.Web.Storage;
 
 namespace PackForge.Web.Backfill;
@@ -134,11 +135,13 @@ public class MigrationService(
             item.Status = MigrationStatus.Verified;
             item.VerifiedAt = DateTimeOffset.UtcNow;
             item.Error = null;
+            Telemetry.MigrationFilesVerified.Add(1);
         }
         catch (Exception ex)
         {
             item.Status = MigrationStatus.Failed;
             item.Error = ex.Message;
+            Telemetry.MigrationFilesFailed.Add(1);
         }
 
         await db.SaveChangesAsync();

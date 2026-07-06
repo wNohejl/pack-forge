@@ -19,6 +19,8 @@ public class PackageBuild
     public string? BlobName { get; set; }
     public BuildStatus Status { get; set; } = BuildStatus.Queued;
     public string? Error { get; set; }
+    public bool Published { get; set; }
+    public DateTimeOffset? PublishedAt { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? CompletedAt { get; set; }
 }

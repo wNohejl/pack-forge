@@ -1,13 +1,16 @@
 using System.Security.Cryptography;
 using System.Text;
+using Azure.Identity;
 using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
 using Microsoft.EntityFrameworkCore;
 using PackForge.Core;
 using PackForge.Core.Migration;
 using PackForge.Core.Models;
+using PackForge.Web.Auth;
 using PackForge.Web.Builds;
 using PackForge.Web.Backfill;
+using PackForge.Web.Observability;
 using PackForge.Web.Components;
 using PackForge.Web.Data;
 using PackForge.Web.Storage;
@@ -17,11 +20,27 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddRazorComponents()
     .AddInteractiveServerComponents();
 
+builder.Services.AddPackForgeObservability(builder.Configuration);
+var authEnabled = builder.Services.AddEntraAuthentication(builder.Configuration);
+
 builder.Services.AddDbContextFactory<PackForgeDbContext>(o =>
     o.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
-builder.Services.AddSingleton(new BlobServiceClient(builder.Configuration.GetConnectionString("Blob")));
+
+// Storage: connection string in dev (Azurite); account URL + managed identity in Azure.
+var blobConn = builder.Configuration.GetConnectionString("Blob")!;
+var queueUri = builder.Configuration["Storage:QueueUri"];
+if (blobConn.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+{
+    var credential = new DefaultAzureCredential();
+    builder.Services.AddSingleton(new BlobServiceClient(new Uri(blobConn), credential));
+    builder.Services.AddSingleton(new QueueClient(new Uri($"{queueUri!.TrimEnd('/')}/{BuildWorker.QueueName}"), credential));
+}
+else
+{
+    builder.Services.AddSingleton(new BlobServiceClient(blobConn));
+    builder.Services.AddSingleton(new QueueClient(blobConn, BuildWorker.QueueName));
+}
 builder.Services.AddSingleton<BlobStorageService>();
-builder.Services.AddSingleton(new QueueClient(builder.Configuration.GetConnectionString("Blob"), BuildWorker.QueueName));
 builder.Services.AddHostedService<BuildWorker>();
 builder.Services.AddHttpClient();
 
@@ -40,6 +59,12 @@ if (!app.Environment.IsDevelopment())
 }
 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
 app.UseHttpsRedirection();
+
+if (authEnabled)
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+}
 
 app.UseAntiforgery();
 
@@ -164,6 +189,27 @@ app.MapGet("/api/packages", async (IDbContextFactory<PackForgeDbContext> dbf) =>
 {
     await using var db = await dbf.CreateDbContextAsync();
     return await db.PackageBuilds.OrderByDescending(b => b.CreatedAt).Take(100).ToListAsync();
+});
+
+// Release gate: a package can only be published if it built successfully AND its
+// stored checksum still matches the bytes in blob storage (no drift, no tampering).
+app.MapPost("/api/packages/{id:guid}/publish", async (Guid id, IDbContextFactory<PackForgeDbContext> dbf, BlobStorageService blobs) =>
+{
+    await using var db = await dbf.CreateDbContextAsync();
+    var build = await db.PackageBuilds.FindAsync(id);
+    if (build is null)
+        return Results.NotFound();
+    if (build.Status != BuildStatus.Ready || build.BlobName is null || build.PackageSha256 is null)
+        return Results.BadRequest("Only successfully built packages can be published.");
+
+    var actual = await blobs.ComputeSha256Async(BlobStorageService.PackagesContainer, build.BlobName);
+    if (actual != build.PackageSha256)
+        return Results.BadRequest($"Release gate failed: checksum mismatch (recorded {build.PackageSha256[..12]}…, blob {actual[..12]}…).");
+
+    build.Published = true;
+    build.PublishedAt = DateTimeOffset.UtcNow;
+    await db.SaveChangesAsync();
+    return Results.Ok(new { build.Id, build.Published, build.PublishedAt });
 });
 
 app.MapGet("/api/packages/{id:guid}/download", async (Guid id, IDbContextFactory<PackForgeDbContext> dbf, BlobStorageService blobs) =>

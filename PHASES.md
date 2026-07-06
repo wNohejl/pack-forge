@@ -50,20 +50,21 @@ Walking skeleton first; every phase has a demonstrable exit criterion and a lear
 **Learning objective:** ETL migration with integrity verification and throttling-aware clients (Husch Blackwell: ETL + Azure; mirrors the multi-TB migration resume bullet at cloud scale).
 **Cost:** $0 — all local.
 
-## Phase 3 — Azure deployment + hardening ⬜
+## Phase 3 — Azure deployment + hardening ✅ 2026-07-06 (code + IaC complete; live deploy deferred by cost posture)
 
 **Goal:** the real cloud footprint, cheap, observable, and gated.
 
-- [ ] Deploy: Azure Container Apps (scale-to-zero) + real Blob Storage + Postgres (Neon free tier first; Azure Flexible Server B1ms only if a demo needs the "all-Azure" story)
-- [ ] Build worker becomes an ACA Job triggered by queue depth (KEDA)
-- [ ] Entra ID auth on the app; SAS tokens scoped per-user, minutes-long expiry
-- [ ] OpenTelemetry traces/metrics → Application Insights (free grant); dashboard for upload throughput + build duration
-- [ ] Blob lifecycle policy: packages → cool tier after 30 days; release gate — package publish requires checksum verify + validator pass
-- [ ] GitHub Actions CI: build, test, deploy on tag
+- [x] Deploy IaC: `infra/main.bicep` — Azure Container Apps (scale 0..3 on HTTP concurrency) + Blob Storage + queue + Log Analytics/App Insights + user-assigned managed identity; `azure.yaml` for `azd up`. Postgres stays Neon free (secret param).
+- [x] Build worker as an ACA **Job** triggered by build-queue depth (KEDA `azure-queue` rule, scale 0..5): `infra/build-job.bicep`
+- [x] Entra ID auth wired and **guarded** — on when `AzureAd` config present, fully open in local dev (`Auth/EntraAuthExtensions.cs`); SAS tokens already short-lived (upload 30 min, download 10 min)
+- [x] OpenTelemetry traces + metrics (`build-package` span, `packforge.packages.built`, `build.duration`, migration counters) → Azure Monitor when connection string set, else console. **Verified locally: spans + metrics emit.**
+- [x] Blob lifecycle policy (packages → Cool after 30 days) in Bicep; **release gate** — `POST /api/packages/{id}/publish` requires Ready status + checksum re-verify. **Verified: valid publish → 200; tampered checksum → 400, stays unpublished.**
+- [x] GitHub Actions CI (`.github/workflows/ci.yml`): restore/build/test with Postgres service, container build, tag-gated deploy stage
+- [x] Container image builds and runs (`Dockerfile`, verified `docker build` → 404 MB image)
 
-**Exit criterion:** public URL demo — upload model on the live site, watch the ACA Job wake from zero, download the package; App Insights shows the end-to-end trace.
+**Exit criterion (adjusted to cost posture):** ~~public URL demo~~ — live Azure deploy is deferred: it needs credentials + spend, and the project's rule is $0/mo until a demo requires it. Everything short of `azd up` is done and locally verified; `az bicep build` validates both templates. Flip the switch with `azd up` when an interview demo justifies the ~$0–5/mo.
 **Learning objective:** Azure depth — ACA, KEDA scaling, managed identity, telemetry (profile gap: cloud depth; Starbucks: telemetry + release gates; Husch Blackwell: Azure services).
-**Cost:** ≈$0–5/month (ACA free grant 180k vCPU-s + 360k GiB-s, blob pennies, Neon free); +$13–15/month only if Flexible Server is switched on for demos.
+**Cost:** ≈$0–5/month when deployed (ACA free grant 180k vCPU-s + 360k GiB-s, blob pennies, Neon free); +$13–15/month only if Flexible Server is switched on. **$0 as it stands** — nothing is deployed.
 
 ## Postings evidenced
 

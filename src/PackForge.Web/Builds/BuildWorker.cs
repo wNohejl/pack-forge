@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using Azure.Storage.Queues;
@@ -6,6 +7,7 @@ using PackForge.Core;
 using PackForge.Core.Models;
 using PackForge.Core.Packaging;
 using PackForge.Web.Data;
+using PackForge.Web.Observability;
 using PackForge.Web.Storage;
 
 namespace PackForge.Web.Builds;
@@ -56,6 +58,11 @@ public class BuildWorker(
         build.Status = BuildStatus.Building;
         await db.SaveChangesAsync(ct);
 
+        using var activity = Telemetry.Source.StartActivity("build-package");
+        activity?.SetTag("model.name", build.ModelName);
+        activity?.SetTag("package.version", build.Version);
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
+
         try
         {
             var upload = await db.Uploads.FindAsync([build.UploadId], ct)
@@ -71,6 +78,8 @@ public class BuildWorker(
             build.PackageSha256 = Convert.ToHexStringLower(SHA256.HashData(bytes));
             build.Status = BuildStatus.Ready;
             build.CompletedAt = DateTimeOffset.UtcNow;
+            Telemetry.PackagesBuilt.Add(1);
+            Telemetry.BuildDurationMs.Record(System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds);
             logger.LogInformation("Built package {Name} v{Version} ({Sha})", build.ModelName, build.Version, build.PackageSha256[..12]);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -78,6 +87,7 @@ public class BuildWorker(
             build.Status = BuildStatus.Failed;
             build.Error = ex.Message;
             build.CompletedAt = DateTimeOffset.UtcNow;
+            activity?.SetStatus(ActivityStatusCode.Error, ex.Message);
             logger.LogError(ex, "Build {BuildId} failed", buildId);
         }
 
