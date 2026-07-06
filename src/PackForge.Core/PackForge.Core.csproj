@@ -1,9 +1,37 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NativeDir>$(MSBuildProjectDirectory)\..\..\native</NativeDir>
+    <NativeSource>$(NativeDir)\packforge_eval.cpp</NativeSource>
   </PropertyGroup>
+
+  <!-- Build the C++ math kernel with g++ when available, using the P/Invoke naming
+       convention per OS (packforge_eval.dll on Windows, libpackforge_eval.so on Unix).
+       If g++ is absent, the build continues and the managed evaluator is used at
+       runtime — NativeMathKernel.IsAvailable reports false. -->
+  <Target Name="BuildNativeKernel" BeforeTargets="BeforeBuild">
+    <Exec Condition="'$(OS)' == 'Windows_NT'"
+          Command="g++ -shared -O2 -static -o &quot;$(NativeDir)\packforge_eval.dll&quot; &quot;$(NativeSource)&quot;"
+          ContinueOnError="true" />
+    <Exec Condition="'$(OS)' != 'Windows_NT'"
+          Command="g++ -shared -O2 -fPIC -o &quot;$(NativeDir)/libpackforge_eval.so&quot; &quot;$(NativeSource)&quot;"
+          ContinueOnError="true" />
+  </Target>
+
+  <!-- Flow whichever native artifact exists to output (and to referencing projects). -->
+  <ItemGroup>
+    <None Include="$(NativeDir)\packforge_eval.dll" Condition="Exists('$(NativeDir)\packforge_eval.dll')">
+      <Link>packforge_eval.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="$(NativeDir)/libpackforge_eval.so" Condition="Exists('$(NativeDir)/libpackforge_eval.so')">
+      <Link>libpackforge_eval.so</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 
 </Project>

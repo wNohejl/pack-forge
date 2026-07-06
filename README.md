@@ -7,10 +7,15 @@ A Blazor web application where users upload math — model definitions (paramete
 ## Quickstart
 
 ```
-# prerequisites: .NET 10 SDK, Docker
+# prerequisites: .NET 10 SDK, Docker (g++ optional — builds the native C++ math
+# kernel; without it the app uses the equivalent managed evaluator)
 docker compose up -d                          # Azurite (blob+queue) + Postgres on :5433
 dotnet run --project src/PackForge.Web        # http://localhost:5221
 ```
+
+The numeric engine runs in a native C++ kernel (`native/packforge_eval.cpp`) via P/Invoke when
+available — the app logs `Math kernel: native C++` at startup — with a managed fallback otherwise.
+Package output is identical either way.
 
 Then: **Uploads** page — upload any file (goes browser→blob via SAS). **Packages** — upload a
 model definition (see `docs/samples/compound-growth.json`), build a versioned package, publish it

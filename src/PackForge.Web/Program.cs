@@ -297,6 +297,9 @@ using (var scope = app.Services.CreateScope())
         await scope.ServiceProvider.GetRequiredService<BlobStorageService>().InitializeDevAsync();
 }
 
+app.Logger.LogInformation("Math kernel: {Kernel}",
+    PackForge.Core.Expressions.NativeMathKernel.IsAvailable ? "native C++ (packforge_eval)" : "managed fallback");
+
 app.Run();
 
 public record BeginUploadRequest(string FileName, long SizeBytes);

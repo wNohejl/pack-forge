@@ -1,6 +1,6 @@
 # PackForge — Phases
 
-**Status: Phases 0–4 complete — built and locally verified 2026-07-06 (24/24 tests, $0 spend).** Phases 0–3 are the core product; Phase 4 begins the posting-targeting roadmap (`vault/Outputs/2026-07-06-packforge-posting-roadmap.md`). The one deferred step, a live `azd up` deploy, is held back to keep the $0/month cost posture until an interview demo justifies it.
+**Status: Phases 0–5 complete — built and locally verified 2026-07-06 (27/27 tests, $0 spend).** Phases 0–3 are the core product; Phases 4–5 begin the posting-targeting roadmap (`vault/Outputs/2026-07-06-packforge-posting-roadmap.md`). The one deferred step, a live `azd up` deploy, is held back to keep the $0/month cost posture until an interview demo justifies it.
 
 Walking skeleton first; every phase has a demonstrable exit criterion and a learning objective tied to a posting requirement. Cost posture: **$0/month through Phase 3** (Azurite emulator for blob+queue, Postgres in Docker or Neon free tier, local workers), and ~$0–5/month only if/when the cloud footprint is actually deployed (ACA scale-to-zero + free monthly grants).
 
@@ -84,6 +84,22 @@ Each phase below carries its checklist, the demonstrable **exit criterion**, and
 **Learning objective:** distributed-systems patterns (transactional outbox, DLQ, idempotent consumer) + real-time push (SignalR/WebSockets) — Oracle (distributed cloud services), Schneider (real-time messaging).
 **Cost:** $0 — Azurite queue + local hosted services.
 
+## Phase 5 — C++ math kernel ✅ 2026-07-06
+
+**Goal:** move the numeric core into C++ — the highest systems-depth signal, and the exact C#/C++ split of the AllianceBernstein platform (Blazor/C# over a C++ engine) and Schneider's mixed stack. Front end stays Blazor; this is a native compute kernel, P/Invoked.
+
+- [x] Native kernel `native/packforge_eval.cpp`: a C-ABI RPN evaluator (arithmetic, `^`, unary, and the whitelisted functions) built with g++ to `packforge_eval.dll` / `libpackforge_eval.so`
+- [x] `RpnCompiler` (Core): compiles the parsed expression AST to a flat opcode/operand program the kernel evaluates
+- [x] `NativeMathKernel` P/Invoke (`LibraryImport`) + `NativeModelEvaluator`: parsing/validation stays in C#, evaluation runs in C++; **managed fallback** when the native lib is absent (CI without g++)
+- [x] MSBuild target builds the kernel per-OS and flows it to output (incl. referencing projects); Dockerfile installs g++ so the container uses it too
+- [x] Reproducibility preserved: results rounded to 12 significant digits before serialization, so packages are byte-identical whether the native or managed evaluator ran (absorbs std::pow vs Math.Pow ULP differences)
+
+**Exit criterion:** the app logs "Math kernel: native C++"; a model built through the running app evaluates in C++ and produces correct, reproducible output; native and managed evaluators agree.
+
+*Verified 2026-07-06: app logged the native kernel active; `sqrt(3² + 4²)` model built via C++ → `results.json` = {aSq:9, bSq:16, hyp:5}; 3 new tests (kernel loads, native==managed to 9+ digits, RPN roundtrip) — 27/27 total.*
+**Learning objective:** C#/C++ interop (P/Invoke, RPN compilation, native build integration) — AllianceBernstein (C++ Monte Carlo engine behind a Blazor platform), Schneider (~25% C++).
+**Cost:** $0 — g++ toolchain, no cloud.
+
 ## Postings evidenced
 
 | Posting | Requirement exercised |
@@ -102,6 +118,7 @@ Each phase below carries its checklist, the demonstrable **exit criterion**, and
 | 2 Migration engine | ✅ | 556 files / 1.28 GB, 541 verified + 15 corrupt failed, dual-read served throughout |
 | 3 Azure + hardening | ✅ code/IaC | Bicep validates; OTel spans+metrics emit; release gate blocks tampered checksum (400); container builds |
 | 4 Distributed + real-time | ✅ | Outbox makes enqueue atomic; poison message dead-lettered; SignalR pushes live build/migration updates (polling removed) |
+| 5 C++ math kernel | ✅ | Native RPN evaluator P/Invoked; C# parses, C++ computes; managed fallback; results reproducible across evaluators |
 
 **Definition of done met:** every phase's exit criterion was demonstrated and recorded, the whole thing runs on free local emulators, and the tree is committed clean at `6f5c8dc`.
 

@@ -11,6 +11,10 @@ artifacts/
 appsettings.*.local.json
 secrets.json
 
+## Compiled native math kernel (built from native/packforge_eval.cpp by MSBuild)
+native/*.dll
+native/*.so
+
 ## Seeded legacy-share demo data (scripts/seed-legacy.ps1)
 .legacy-share/
 

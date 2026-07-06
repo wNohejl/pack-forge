@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using PackForge.Core.Expressions;
 using PackForge.Core.Models;
 
 namespace PackForge.Core.Packaging;
@@ -10,6 +11,11 @@ namespace PackForge.Core.Packaging;
 /// same (model, version) — fixed entry timestamps, fixed entry order, no wall-clock
 /// data in the manifest. Reproducibility is the release-engineering guarantee:
 /// identical inputs must yield an identical checksum.
+///
+/// The numeric core runs in the native C++ kernel when available (else managed).
+/// Results are rounded to 12 significant digits before serialization so the package
+/// is reproducible regardless of which evaluator ran — absorbing sub-ULP differences
+/// between std::pow/Math.Pow etc.
 /// </summary>
 public static class PackageBuilder
 {
@@ -18,7 +24,8 @@ public static class PackageBuilder
 
     public static byte[] Build(ModelDefinition model, string modelSha256, int version)
     {
-        var results = ModelEvaluator.Evaluate(model);
+        var raw = NativeModelEvaluator.Evaluate(model);
+        var results = raw.ToDictionary(kv => kv.Key, kv => RoundSignificant(kv.Value, 12));
 
         var manifest = new
         {
@@ -47,5 +54,14 @@ public static class PackageBuilder
         entry.LastWriteTime = FixedTimestamp;
         using var stream = entry.Open();
         stream.Write(Encoding.UTF8.GetBytes(content));
+    }
+
+    /// <summary>Round to N significant digits so results are stable across evaluators.</summary>
+    private static double RoundSignificant(double value, int digits)
+    {
+        if (value == 0 || !double.IsFinite(value))
+            return value;
+        var scale = Math.Pow(10, digits - 1 - (int)Math.Floor(Math.Log10(Math.Abs(value))));
+        return Math.Round(value * scale) / scale;
     }
 }
