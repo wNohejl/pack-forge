@@ -11,6 +11,9 @@ artifacts/
 appsettings.*.local.json
 secrets.json
 
+## Seeded legacy-share demo data (scripts/seed-legacy.ps1)
+.legacy-share/
+
 ## Azurite / local data
 __azurite*__/
 __blobstorage__/

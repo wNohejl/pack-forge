@@ -9,12 +9,14 @@ public class BlobStorageService(BlobServiceClient client)
 {
     public const string ModelsContainer = "models";
     public const string PackagesContainer = "packages";
+    public const string MigratedContainer = "migrated";
 
     /// <summary>Dev-only bootstrap: containers + permissive CORS so the browser can PUT directly to Azurite.</summary>
     public async Task InitializeDevAsync(CancellationToken ct = default)
     {
         await client.GetBlobContainerClient(ModelsContainer).CreateIfNotExistsAsync(cancellationToken: ct);
         await client.GetBlobContainerClient(PackagesContainer).CreateIfNotExistsAsync(cancellationToken: ct);
+        await client.GetBlobContainerClient(MigratedContainer).CreateIfNotExistsAsync(cancellationToken: ct);
 
         var props = await client.GetPropertiesAsync(ct);
         props.Value.Cors = new List<BlobCorsRule>
@@ -56,6 +58,16 @@ public class BlobStorageService(BlobServiceClient client)
         var blob = client.GetBlobContainerClient(container).GetBlobClient(blobName);
         var result = await blob.DownloadContentAsync(ct);
         return result.Value.Content.ToString();
+    }
+
+    public async Task UploadStreamAsync(string container, string blobName, Stream stream, string contentType, CancellationToken ct = default)
+    {
+        var blob = client.GetBlobContainerClient(container).GetBlobClient(blobName);
+        await blob.UploadAsync(stream, new BlobUploadOptions
+        {
+            HttpHeaders = new BlobHttpHeaders { ContentType = contentType },
+            TransferOptions = new Azure.Storage.StorageTransferOptions { MaximumConcurrency = 1 }, // sequential: source stream is hashed as it's read
+        }, ct);
     }
 
     public async Task UploadBytesAsync(string container, string blobName, byte[] bytes, string contentType, CancellationToken ct = default)

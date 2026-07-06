@@ -4,8 +4,10 @@ using Azure.Storage.Blobs;
 using Azure.Storage.Queues;
 using Microsoft.EntityFrameworkCore;
 using PackForge.Core;
+using PackForge.Core.Migration;
 using PackForge.Core.Models;
 using PackForge.Web.Builds;
+using PackForge.Web.Backfill;
 using PackForge.Web.Components;
 using PackForge.Web.Data;
 using PackForge.Web.Storage;
@@ -22,6 +24,12 @@ builder.Services.AddSingleton<BlobStorageService>();
 builder.Services.AddSingleton(new QueueClient(builder.Configuration.GetConnectionString("Blob"), BuildWorker.QueueName));
 builder.Services.AddHostedService<BuildWorker>();
 builder.Services.AddHttpClient();
+
+var legacyRoot = builder.Configuration["Migration:LegacyRoot"]
+    ?? Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, "..", "..", ".legacy-share"));
+builder.Services.AddSingleton<IMigrationSource>(new LocalFolderSource("fileshare", Path.Combine(legacyRoot, "fileshare")));
+builder.Services.AddSingleton<IMigrationSource>(new ThrottledGraphSource("sharepoint", Path.Combine(legacyRoot, "sharepoint")));
+builder.Services.AddSingleton<MigrationService>();
 
 var app = builder.Build();
 
@@ -165,6 +173,61 @@ app.MapGet("/api/packages/{id:guid}/download", async (Guid id, IDbContextFactory
     return build is null or { Status: not BuildStatus.Ready } || build.BlobName is null
         ? Results.NotFound()
         : Results.Redirect(blobs.GetDownloadSasUri(BlobStorageService.PackagesContainer, build.BlobName).ToString());
+});
+
+// ---- Migration engine --------------------------------------------------------
+
+app.MapPost("/api/migration/run", (MigrationService migration) =>
+    migration.TryStart() ? Results.Accepted() : Results.Conflict("A migration run is already in progress."));
+
+app.MapGet("/api/migration/report", async (MigrationService migration, IDbContextFactory<PackForgeDbContext> dbf) =>
+{
+    await using var db = await dbf.CreateDbContextAsync();
+    var byStatus = await db.MigrationItems
+        .GroupBy(i => new { i.SourceSystem, i.Status })
+        .Select(g => new { g.Key.SourceSystem, Status = g.Key.Status.ToString(), Count = g.Count(), Bytes = g.Sum(i => i.SizeBytes) })
+        .ToListAsync();
+    var failures = await db.MigrationItems
+        .Where(i => i.Status == MigrationStatus.Failed)
+        .Select(i => new { i.SourceSystem, i.SourcePath, i.Error })
+        .Take(50)
+        .ToListAsync();
+    var elapsed = migration.StartedAt is null ? 0
+        : ((migration.FinishedAt ?? DateTimeOffset.UtcNow) - migration.StartedAt.Value).TotalSeconds;
+    return Results.Ok(new
+    {
+        running = migration.Running,
+        startedAt = migration.StartedAt,
+        finishedAt = migration.FinishedAt,
+        bytesCopied = migration.BytesCopied,
+        throughputMBps = elapsed > 0 ? migration.BytesCopied / elapsed / (1 << 20) : 0,
+        byStatus,
+        failures,
+    });
+});
+
+// Dual-read: verified items serve from blob (SAS redirect); everything else falls
+// back to the legacy source, so nothing goes dark during the migration.
+app.MapGet("/api/legacy/{system}/{**path}", async (string system, string path, IDbContextFactory<PackForgeDbContext> dbf, BlobStorageService blobs, MigrationService migration) =>
+{
+    await using var db = await dbf.CreateDbContextAsync();
+    var item = await db.MigrationItems
+        .FirstOrDefaultAsync(i => i.SourceSystem == system && i.SourcePath == path);
+
+    if (item is { Status: MigrationStatus.Verified, BlobName: not null })
+        return Results.Redirect(blobs.GetDownloadSasUri(BlobStorageService.MigratedContainer, item.BlobName).ToString());
+
+    var source = migration.GetSource(system);
+    if (source is null)
+        return Results.NotFound();
+    try
+    {
+        return Results.Stream(await source.OpenReadAsync(path), "application/octet-stream");
+    }
+    catch (FileNotFoundException)
+    {
+        return Results.NotFound();
+    }
 });
 
 // ---- Startup: schema + dev storage bootstrap --------------------------------

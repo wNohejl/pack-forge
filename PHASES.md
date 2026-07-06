@@ -34,17 +34,19 @@ Walking skeleton first; every phase has a demonstrable exit criterion and a lear
 **Learning objective:** queue-driven async compute + reproducible build/release engineering (AllianceBernstein: engine evaluating user-supplied math; Starbucks: build & release engineering).
 **Cost:** $0 — queue emulated in Azurite, worker is a local hosted service.
 
-## Phase 2 — Migration engine: strangler off SharePoint/file share ⬜
+## Phase 2 — Migration engine: strangler off SharePoint/file share ✅ 2026-07-06
 
 **Goal:** verified bulk migration of legacy content with zero cutover cliff.
 
-- [ ] `migration_inventory` table: source path, source system, size, sha256, status (pending/copied/verified/failed)
-- [ ] Source adapters behind one interface: local-folder adapter (stands in for the file share); Graph-shaped adapter with batching + 429 retry/backoff (stands in for SharePoint)
-- [ ] Backfill worker: inventory scan → copy → hash → verify → mark; idempotent re-runs
-- [ ] Dual-read: app serves from blob, falls back to legacy source when inventory row isn't verified
-- [ ] Verification report page: counts, throughput, failures with reasons
+- [x] `migration_items` table: source system, path, size, source+blob sha256, status (pending/copied/verified/failed), unique (system,path)
+- [x] Source adapters behind `IMigrationSource`: `LocalFolderSource` (file share); `ThrottledGraphSource` (SharePoint) — paged enumeration, 429-style throttling, truncates `*corrupt*` files
+- [x] Backfill worker: inventory scan → stream-copy+hash in one read → verify blob hash + byte count → mark; exponential backoff on throttling; idempotent (skips Verified)
+- [x] Dual-read: `/api/legacy/{system}/{**path}` redirects to blob SAS when Verified, else streams from the legacy source
+- [x] Verification report page `/migration`: per-source status counts, bytes, throughput, failure list with reasons
 
 **Exit criterion:** seed a fake legacy share (≥1 GB, ≥500 files, some deliberately corrupted); run backfill; report shows 100% of good files verified and corrupted ones flagged — while the app keeps serving every file throughout via dual-read.
+
+*Verified 2026-07-06: seeded 556 files / 1.28 GB (15 corrupt). Backfill → 541/541 good files Verified, all 15 corrupt Failed (truncation caught, none passed) at 50.7 MB/s. Dual-read served a verified file (blob redirect), a failed file (legacy fallback), and 404'd a missing one — all during/after the run.*
 **Learning objective:** ETL migration with integrity verification and throttling-aware clients (Husch Blackwell: ETL + Azure; mirrors the multi-TB migration resume bullet at cloud scale).
 **Cost:** $0 — all local.
 

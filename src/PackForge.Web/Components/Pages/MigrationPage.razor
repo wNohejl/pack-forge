@@ -1,0 +1,105 @@
+@page "/migration"
+@rendermode InteractiveServer
+@using System.Text.Json
+@inject IHttpClientFactory HttpFactory
+@inject NavigationManager Nav
+@implements IDisposable
+
+<PageTitle>PackForge — Migration</PageTitle>
+
+<h1>Migration</h1>
+<p>Strangler backfill from the legacy file share and SharePoint into blob storage. Every file is checksum-verified before the source copy is trusted; unverified files keep serving from the legacy source via dual-read.</p>
+
+<button @onclick="RunAsync" disabled="@(report?.Running == true)">
+    @(report?.Running == true ? "Running…" : "Scan & migrate")
+</button>
+
+@if (report is not null)
+{
+    <p>
+        Copied <strong>@FormatSize(report.BytesCopied)</strong>
+        @(report.ThroughputMBps > 0 ? $"at {report.ThroughputMBps:F1} MB/s" : "")
+        @(report.FinishedAt is not null ? " — run complete." : report.Running ? " — in progress…" : "")
+    </p>
+
+    <table>
+        <thead><tr><th>Source</th><th>Status</th><th>Files</th><th>Bytes</th></tr></thead>
+        <tbody>
+            @foreach (var row in report.ByStatus.OrderBy(r => r.SourceSystem).ThenBy(r => r.Status))
+            {
+                <tr>
+                    <td>@row.SourceSystem</td>
+                    <td>@row.Status</td>
+                    <td>@row.Count</td>
+                    <td>@FormatSize(row.Bytes)</td>
+                </tr>
+            }
+        </tbody>
+    </table>
+
+    @if (report.Failures.Count > 0)
+    {
+        <h2>Failures (@report.Failures.Count shown)</h2>
+        <ul>
+            @foreach (var f in report.Failures)
+            {
+                <li><code>@f.SourceSystem/@f.SourcePath</code> — @f.Error</li>
+            }
+        </ul>
+    }
+}
+
+@code {
+    private Report? report;
+    private Timer? pollTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        pollTimer = new Timer(async _ =>
+        {
+            if (report?.Running == true)
+            {
+                await RefreshAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }, null, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+    }
+
+    private HttpClient Client()
+    {
+        var http = HttpFactory.CreateClient();
+        http.BaseAddress = new Uri(Nav.BaseUri);
+        return http;
+    }
+
+    private async Task RefreshAsync()
+    {
+        using var http = Client();
+        report = await http.GetFromJsonAsync<Report>("/api/migration/report");
+    }
+
+    private async Task RunAsync()
+    {
+        using var http = Client();
+        await http.PostAsync("/api/migration/run", null);
+        await RefreshAsync();
+    }
+
+    private static string FormatSize(long bytes) => bytes switch
+    {
+        >= 1 << 30 => $"{bytes / (double)(1 << 30):F2} GB",
+        >= 1 << 20 => $"{bytes / (double)(1 << 20):F1} MB",
+        >= 1 << 10 => $"{bytes / (double)(1 << 10):F1} KB",
+        _ => $"{bytes} B",
+    };
+
+    private record Report(bool Running, DateTimeOffset? StartedAt, DateTimeOffset? FinishedAt, long BytesCopied,
+        double ThroughputMBps, List<StatusRow> ByStatus, List<Failure> Failures);
+
+    private record StatusRow(string SourceSystem, string Status, int Count, long Bytes);
+
+    private record Failure(string SourceSystem, string SourcePath, string? Error);
+
+    public void Dispose() => pollTimer?.Dispose();
+}

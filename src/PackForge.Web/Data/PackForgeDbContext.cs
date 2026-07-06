@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using PackForge.Core;
+using PackForge.Core.Migration;
 
 namespace PackForge.Web.Data;
 
@@ -7,9 +8,22 @@ public class PackForgeDbContext(DbContextOptions<PackForgeDbContext> options) : 
 {
     public DbSet<Upload> Uploads => Set<Upload>();
     public DbSet<PackageBuild> PackageBuilds => Set<PackageBuild>();
+    public DbSet<MigrationItem> MigrationItems => Set<MigrationItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<MigrationItem>(e =>
+        {
+            e.Property(i => i.SourceSystem).HasMaxLength(64);
+            e.Property(i => i.SourcePath).HasMaxLength(1024);
+            e.Property(i => i.BlobName).HasMaxLength(1024);
+            e.Property(i => i.SourceSha256).HasMaxLength(64);
+            e.Property(i => i.BlobSha256).HasMaxLength(64);
+            e.Property(i => i.Status).HasConversion<string>().HasMaxLength(16);
+            e.HasIndex(i => new { i.SourceSystem, i.SourcePath }).IsUnique();
+            e.HasIndex(i => i.Status);
+        });
+
         modelBuilder.Entity<PackageBuild>(e =>
         {
             e.Property(b => b.ModelName).HasMaxLength(256);
