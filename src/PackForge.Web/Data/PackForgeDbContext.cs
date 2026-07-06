@@ -10,6 +10,7 @@ public class PackForgeDbContext(DbContextOptions<PackForgeDbContext> options) : 
     public DbSet<PackageBuild> PackageBuilds => Set<PackageBuild>();
     public DbSet<MigrationItem> MigrationItems => Set<MigrationItem>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
+    public DbSet<ReconciliationRow> ReconciliationRows => Set<ReconciliationRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -18,6 +19,9 @@ public class PackForgeDbContext(DbContextOptions<PackForgeDbContext> options) : 
             e.Property(o => o.QueueName).HasMaxLength(64);
             e.HasIndex(o => o.SentAt); // dispatcher scans unsent rows
         });
+
+        // Result of the reconciliation stored procedure — no table backing it.
+        modelBuilder.Entity<ReconciliationRow>().HasNoKey().ToView(null);
 
         modelBuilder.Entity<MigrationItem>(e =>
         {

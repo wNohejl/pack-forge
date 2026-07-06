@@ -100,6 +100,19 @@ Each phase below carries its checklist, the demonstrable **exit criterion**, and
 **Learning objective:** C#/C++ interop (P/Invoke, RPN compilation, native build integration) — AllianceBernstein (C++ Monte Carlo engine behind a Blazor platform), Schneider (~25% C++).
 **Cost:** $0 — g++ toolchain, no cloud.
 
+## Phase 6 — Husch Blackwell stack match ✅ 2026-07-06
+
+**Goal:** close the two remaining Husch Blackwell must-haves — modern component-SPA proficiency (their "React or Angular") and SQL Server + stored procedures — **without leaving Blazor**.
+
+- [x] **6a Blazor SPA depth (MudBlazor):** sortable/filterable `MudDataGrid` on all three pages, `MudSelect`/`MudButton`/`MudAlert` forms, status chips, collapsible failure panel, app-bar nav. Switched to global interactive render mode so the MudBlazor providers work. Demonstrates the same component-SPA competency as React/Angular — HB's ask — in Blazor. *(Residual React-syntax gap closed via short study, not a JS framework — per the user's Blazor-only constraint.)*
+- [x] **6b SQL Server provider + stored procedure:** EF Core provider is config-selectable (`Database:Provider` = Postgres | SqlServer). The migration **reconciliation report** is a real database stored procedure (T-SQL `dbo.MigrationReconciliation`) / function (PL/pgSQL `migration_reconciliation`), invoked via EF `FromSqlRaw` — not app-side aggregation. New `/api/migration/reconciliation` endpoint + a report grid on the Migration page. SQL Server added to `docker-compose` under a `sqlserver` profile.
+
+**Exit criterion:** the reconciliation grid shows per-source verified/failed counts and verification rate computed by the DB stored procedure; the app runs on either provider.
+
+*Verified 2026-07-06: MudBlazor UI renders on all pages with no circuit errors, grids sort/filter, SignalR live updates intact. Reconciliation stored function on Postgres returned fileshare 304/304 (100%) and sharepoint 237/252 (94.0%, 15 failed) via EF FromSqlRaw. 27/27 tests. (SQL Server T-SQL path: see run note for live-verify status.)*
+**Learning objective:** modern component-SPA (Blazor/MudBlazor), multi-provider EF Core, SQL Server + stored procedures — Husch Blackwell (.NET, React/Angular, SQL Server, stored procedures, ETL, EF code-first).
+**Cost:** $0 — MudBlazor is free; Postgres local; SQL Server is an optional local container.
+
 ## Postings evidenced
 
 | Posting | Requirement exercised |

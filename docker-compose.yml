@@ -19,6 +19,18 @@ services:
     volumes:
       - pg-data:/var/lib/postgresql/data
 
+  # Optional: the SQL Server evidence path (Husch Blackwell stack).
+  #   docker compose --profile sqlserver up -d
+  #   then run the app with Database__Provider=SqlServer.
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    profiles: ["sqlserver"]
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Str0ng!Passw0rd"
+    ports:
+      - "1433:1433"
+
 volumes:
   azurite-data:
   pg-data:

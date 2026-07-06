@@ -29,8 +29,14 @@ builder.Services.AddMudServices();
 builder.Services.AddPackForgeObservability(builder.Configuration);
 var authEnabled = builder.Services.AddEntraAuthentication(builder.Configuration);
 
+var dbProvider = DatabaseProvider.Parse(builder.Configuration["Database:Provider"]);
 builder.Services.AddDbContextFactory<PackForgeDbContext>(o =>
-    o.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
+{
+    if (dbProvider == DbProvider.SqlServer)
+        o.UseSqlServer(builder.Configuration.GetConnectionString("SqlServer"));
+    else
+        o.UseNpgsql(builder.Configuration.GetConnectionString("Postgres"));
+});
 
 // Storage: connection string in dev (Azurite); account URL + managed identity in Azure.
 var blobConn = builder.Configuration.GetConnectionString("Blob")!;
@@ -265,6 +271,18 @@ app.MapGet("/api/migration/report", async (MigrationService migration, IDbContex
     });
 });
 
+// Reconciliation report produced by a database stored procedure (SQL Server) /
+// function (Postgres), invoked via EF Core — not aggregated in app code.
+app.MapGet("/api/migration/reconciliation", async (IDbContextFactory<PackForgeDbContext> dbf) =>
+{
+    await using var db = await dbf.CreateDbContextAsync();
+    var rows = await db.ReconciliationRows
+        .FromSqlRaw(DatabaseProvider.ReconciliationCall(dbProvider))
+        .AsNoTracking()
+        .ToListAsync();
+    return Results.Ok(new { provider = dbProvider.ToString(), rows });
+});
+
 // Dual-read: verified items serve from blob (SAS redirect); everything else falls
 // back to the legacy source, so nothing goes dark during the migration.
 app.MapGet("/api/legacy/{system}/{**path}", async (string system, string path, IDbContextFactory<PackForgeDbContext> dbf, BlobStorageService blobs, MigrationService migration) =>
@@ -294,7 +312,13 @@ app.MapGet("/api/legacy/{system}/{**path}", async (string system, string path, I
 using (var scope = app.Services.CreateScope())
 {
     var db = await scope.ServiceProvider.GetRequiredService<IDbContextFactory<PackForgeDbContext>>().CreateDbContextAsync();
-    await db.Database.MigrateAsync();
+    // Postgres is the migration-tracked path; the SQL Server evidence path uses
+    // EnsureCreated (its schema isn't tracked by the Npgsql-generated migrations).
+    if (dbProvider == DbProvider.SqlServer)
+        await db.Database.EnsureCreatedAsync();
+    else
+        await db.Database.MigrateAsync();
+    await db.Database.ExecuteSqlRawAsync(DatabaseProvider.ReconciliationDdl(dbProvider));
     if (app.Environment.IsDevelopment())
         await scope.ServiceProvider.GetRequiredService<BlobStorageService>().InitializeDevAsync();
 }

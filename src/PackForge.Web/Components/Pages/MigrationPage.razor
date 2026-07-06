@@ -45,7 +45,7 @@
 
     @if (report.Failures.Count > 0)
     {
-        <MudExpansionPanels Elevation="1">
+        <MudExpansionPanels Elevation="1" Class="mb-4">
             <MudExpansionPanel Text="@($"Failures ({report.Failures.Count} shown)")">
                 <MudList T="string" Dense="true">
                     @foreach (var f in report.Failures)
@@ -60,8 +60,37 @@
     }
 }
 
+<MudDivider Class="my-4" />
+<div class="d-flex align-center gap-3 mb-2">
+    <MudText Typo="Typo.h6">Reconciliation report</MudText>
+    <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="LoadReconciliationAsync">Run stored procedure</MudButton>
+    @if (reconciliation is not null)
+    {
+        <MudChip T="string" Size="Size.Small" Color="Color.Info">@reconciliation.Provider</MudChip>
+    }
+</div>
+<MudText Typo="Typo.body2" Class="mb-2">Computed in the database by a stored procedure (SQL Server) / function (PostgreSQL), invoked via EF Core.</MudText>
+@if (reconciliation is not null)
+{
+    <MudDataGrid T="ReconRow" Items="reconciliation.Rows" Dense="true" Hover="true" Elevation="1">
+        <Columns>
+            <PropertyColumn Property="r => r.SourceSystem" Title="Source" />
+            <PropertyColumn Property="r => r.TotalFiles" Title="Total" />
+            <PropertyColumn Property="r => r.VerifiedFiles" Title="Verified" />
+            <PropertyColumn Property="r => r.FailedFiles" Title="Failed" />
+            <TemplateColumn Title="Verified bytes">
+                <CellTemplate>@FormatSize(context.Item.VerifiedBytes)</CellTemplate>
+            </TemplateColumn>
+            <TemplateColumn Title="Verification rate">
+                <CellTemplate>@($"{context.Item.VerificationRate:P1}")</CellTemplate>
+            </TemplateColumn>
+        </Columns>
+    </MudDataGrid>
+}
+
 @code {
     private Report? report;
+    private ReconReport? reconciliation;
     private HubConnection? hub;
 
     protected override async Task OnInitializedAsync()
@@ -99,6 +128,12 @@
         await RefreshAsync();
     }
 
+    private async Task LoadReconciliationAsync()
+    {
+        using var http = Client();
+        reconciliation = await http.GetFromJsonAsync<ReconReport>("/api/migration/reconciliation");
+    }
+
     private static string FormatSize(long bytes) => bytes switch
     {
         >= 1 << 30 => $"{bytes / (double)(1 << 30):F2} GB",
@@ -121,6 +156,11 @@
     private record StatusRow(string SourceSystem, string Status, int Count, long Bytes);
 
     private record Failure(string SourceSystem, string SourcePath, string? Error);
+
+    private record ReconReport(string Provider, List<ReconRow> Rows);
+
+    private record ReconRow(string SourceSystem, int TotalFiles, int VerifiedFiles, int FailedFiles,
+        int PendingFiles, long TotalBytes, long VerifiedBytes, double VerificationRate);
 
     public async ValueTask DisposeAsync()
     {
