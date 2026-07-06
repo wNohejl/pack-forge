@@ -93,7 +93,7 @@ Each phase below carries its checklist, the demonstrable **exit criterion**, and
 ### Remaining follow-ups (outside the phase plan)
 
 - [x] Push to `github.com/wNohejl/pack-forge` (public) — done 2026-07-06, 7 commits
-- [ ] Draft the résumé bullet into `Career/resume/base.md`
+- [x] Draft the résumé bullet into `Career/resume/base.md` — done 2026-07-06 (Projects entry + skills updated)
 - [ ] Optional: `azd up` for a live public demo (~$0–5/mo) when an interview warrants it
 - [ ] Optional feature backlog: CSV data inputs for models (deferred from Phase 1); richer math functions if a posting needs them
 
